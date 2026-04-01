@@ -10,7 +10,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-from config import COINS
+from config import COINS, WHALE_ALERT_API_KEY
 from src.database import (
     get_session, PriceData, Signal, SentimentSnapshot,
     WhaleTransaction, RedditPost, NewsArticle, init_db,
@@ -575,8 +575,8 @@ st.markdown(f'<div class="ticker-strip">{ticker_cells}</div>', unsafe_allow_html
 # ═══════════════════════════════════════════════════════════════
 #  MAIN TABS
 # ═══════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "MARKET OVERVIEW", "SENTIMENT INTEL", "PREDICTIONS", "WHALE TRACKER", "BACKTESTING"
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "MARKET OVERVIEW", "SENTIMENT INTEL", "PREDICTIONS", "WHALE TRACKER", "BACKTESTING", "PAPER TRADING"
 ])
 
 
@@ -1170,8 +1170,7 @@ with tab3:
 # ────────────────────────────────────────────────────────────────
 with tab4:
     # Data source badge
-    _wa_key = os.getenv("WHALE_ALERT_API_KEY", "")
-    _wa_active = bool(_wa_key)
+    _wa_active = bool(WHALE_ALERT_API_KEY)
     st.markdown(f"""
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">
       <span style="font-size:0.6rem;color:#484f58;text-transform:uppercase;letter-spacing:1px;">Data Source</span>
@@ -1388,6 +1387,114 @@ with tab5:
               <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;color:#30363d;letter-spacing:4px;">[ BACKTEST ]</div>
               <div style="font-size:0.78rem;">Configure parameters and click <strong style="color:#8b949e;">RUN BACKTEST</strong></div>
               <div style="font-size:0.65rem;color:#30363d;font-family:'JetBrains Mono',monospace;">Requires signal history in database</div>
+            </div>""", unsafe_allow_html=True)
+
+
+# ────────────────────────────────────────────────────────────────
+#  TAB 6 — PAPER TRADING
+# ────────────────────────────────────────────────────────────────
+with tab6:
+    from src.paper_trader import PaperTrader
+    from config import BINANCE_TESTNET_API_KEY
+
+    pt = PaperTrader()
+    _pt_active = pt.enabled
+
+    # ── Status banner ────────────────────────────────────────────
+    if _pt_active:
+        st.markdown("""
+        <div style="padding:0.5rem 0.8rem;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);
+             border-radius:4px;margin-bottom:0.75rem;display:flex;align-items:center;gap:10px;">
+          <span style="color:#3fb950;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">● TESTNET CONNECTED</span>
+          <span style="color:#484f58;font-size:0.65rem;">Binance Testnet — zero real money at risk</span>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="padding:0.5rem 0.8rem;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);
+             border-radius:4px;margin-bottom:0.75rem;">
+          <span style="color:#f85149;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">● TESTNET KEYS NOT SET</span><br>
+          <span style="color:#8b949e;font-size:0.65rem;">
+            1. Go to <strong>testnet.binance.vision</strong> and log in with GitHub<br>
+            2. Click <strong>Generate HMAC_SHA256 Key</strong><br>
+            3. Paste both keys in <code>.env.local</code> under BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET<br>
+            4. Restart the app
+          </span>
+        </div>""", unsafe_allow_html=True)
+
+    c_pt_left, c_pt_right = st.columns([1, 2], gap="small")
+
+    with c_pt_left:
+        st.markdown('<div class="sec-label">Execute Signal</div>', unsafe_allow_html=True)
+        pt_coin   = st.selectbox("Coin", list(COINS.keys()), key="pt_coin")
+        pt_signal = st.selectbox("Signal", ["BUY", "SELL"], key="pt_signal")
+        pt_conf   = st.slider("Confidence", 0.50, 1.00, 0.70, 0.01, key="pt_conf")
+        pt_run    = st.button("▶  EXECUTE PAPER TRADE", use_container_width=True,
+                              type="primary", disabled=not _pt_active)
+
+        if pt_run:
+            with st.spinner("Placing order on Binance Testnet..."):
+                result = pt.execute_signal(pt_coin, pt_signal, pt_conf)
+            status = result.get("status", "ERROR")
+            if status == "FILLED":
+                st.success(f"Order filled — {result['side']} {result['quantity']:.6f} "
+                           f"{result['symbol']} @ ~${result['price']:,.2f} "
+                           f"(notional ${result['notional']:.2f})")
+            elif status == "SKIPPED":
+                st.warning(f"Skipped: {result['reason']}")
+            else:
+                st.error(f"{status}: {result.get('reason', 'unknown error')}")
+
+        st.markdown('<div class="sec-label" style="margin-top:1rem;">Portfolio</div>', unsafe_allow_html=True)
+        if st.button("Refresh Balances", disabled=not _pt_active, key="pt_refresh"):
+            with st.spinner("Fetching testnet account..."):
+                portfolio = pt.get_portfolio_summary()
+            if portfolio.get("error"):
+                st.error(portfolio["error"])
+            elif portfolio.get("balances"):
+                for asset, bal in portfolio["balances"].items():
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
+                        f'border-bottom:1px solid #161b22;">'
+                        f'<span style="font-size:0.7rem;color:#8b949e;">{asset}</span>'
+                        f'<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:#c9d1d9;">{bal:.6f}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.markdown('<div style="font-size:0.7rem;color:#484f58;">No balances found</div>',
+                            unsafe_allow_html=True)
+
+    with c_pt_right:
+        st.markdown('<div class="sec-label">Recent Orders</div>', unsafe_allow_html=True)
+        if _pt_active:
+            pt_hist_coin = st.selectbox("Coin", list(COINS.keys()), key="pt_hist_coin",
+                                        label_visibility="collapsed")
+            if st.button("Load Order History", key="pt_load_hist"):
+                symbol = COINS[pt_hist_coin]["binance"]
+                with st.spinner("Loading..."):
+                    orders = pt.get_order_history(symbol, limit=20)
+                if orders:
+                    order_rows = []
+                    for o in orders:
+                        order_rows.append({
+                            "Time":     pd.to_datetime(o.get("time", 0), unit="ms").strftime("%m/%d %H:%M"),
+                            "Side":     o.get("side", ""),
+                            "Symbol":   o.get("symbol", ""),
+                            "Qty":      f"{float(o.get('origQty', 0)):.6f}",
+                            "Price":    fmt_price(float(o.get("price", 0)) or float(o.get("cummulativeQuoteQty", 0)) / max(float(o.get("executedQty", 1)), 1e-9)),
+                            "Status":   o.get("status", ""),
+                        })
+                    st.dataframe(pd.DataFrame(order_rows), use_container_width=True,
+                                 hide_index=True, height=400)
+                else:
+                    st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:1rem;">No orders found</div>',
+                                unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="height:300px;display:flex;align-items:center;justify-content:center;
+                 background:#0d1117;border:1px solid #161b22;border-radius:6px;color:#484f58;
+                 font-size:0.75rem;font-family:'JetBrains Mono',monospace;letter-spacing:1px;">
+              -- CONFIGURE TESTNET KEYS TO ENABLE --
             </div>""", unsafe_allow_html=True)
 
 
