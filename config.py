@@ -1,0 +1,79 @@
+"""
+Configuration — Crypto Trading Intelligence Terminal
+All API keys loaded from .env.local (never commit keys to GitHub).
+"""
+
+import os
+from pathlib import Path
+
+# Try loading .env.local if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent / ".env.local"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass
+
+# ──────────────────────────────────────────────
+# API Keys (FREE tiers only — total cost ₹0)
+# ──────────────────────────────────────────────
+REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID", "")
+REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", "")
+REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "CryptoTerminal/1.0")
+
+NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+
+# ──────────────────────────────────────────────
+# Binance (public endpoints — no API key needed)
+# ──────────────────────────────────────────────
+BINANCE_BASE_URL = "https://api.binance.com/api/v3"
+
+# ──────────────────────────────────────────────
+# Supported Coins (at least 5 as required)
+# ──────────────────────────────────────────────
+COINS = {
+    "BTC":  {"binance": "BTCUSDT", "subreddit": "Bitcoin",    "name": "Bitcoin"},
+    "ETH":  {"binance": "ETHUSDT", "subreddit": "ethereum",   "name": "Ethereum"},
+    "SOL":  {"binance": "SOLUSDT", "subreddit": "solana",     "name": "Solana"},
+    "XRP":  {"binance": "XRPUSDT", "subreddit": "XRP",        "name": "Ripple"},
+    "DOGE": {"binance": "DOGEUSDT","subreddit": "dogecoin",   "name": "Dogecoin"},
+}
+
+# ──────────────────────────────────────────────
+# Database (SQLite default — swap to PostgreSQL via env)
+# ──────────────────────────────────────────────
+BASE_DIR = Path(__file__).parent
+DATABASE_PATH = BASE_DIR / "data" / "crypto_terminal.db"
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
+
+# ──────────────────────────────────────────────
+# LLM Settings (Ollama — runs locally)
+# ──────────────────────────────────────────────
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_0")
+SENTIMENT_TIMEOUT = 30  # seconds per LLM request
+
+# ──────────────────────────────────────────────
+# Prediction Model
+# ──────────────────────────────────────────────
+MODEL_SAVE_PATH = str(BASE_DIR / "models")
+
+# ──────────────────────────────────────────────
+# Signal Thresholds
+# ──────────────────────────────────────────────
+BULLISH_THRESHOLD = 0.7
+BEARISH_THRESHOLD = 0.3
+WHALE_ALERT_MIN_USD = 1_000_000
+
+# ──────────────────────────────────────────────
+# Scheduler Intervals (seconds)
+# ──────────────────────────────────────────────
+PRICE_FETCH_INTERVAL = 60
+REDDIT_FETCH_INTERVAL = 120
+NEWS_FETCH_INTERVAL = 300
+ONCHAIN_FETCH_INTERVAL = 180
+SENTIMENT_RUN_INTERVAL = 120
+SIGNAL_RUN_INTERVAL = 60

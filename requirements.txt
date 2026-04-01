@@ -1,0 +1,22 @@
+# ── Core ──
+python-dotenv>=1.0.0
+requests>=2.31.0
+sqlalchemy>=2.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ── Data Collection ──
+praw>=7.7.0
+
+# ── Sentiment (FinBERT fallback) ──
+transformers>=4.35.0
+torch>=2.1.0
+
+# ── Prediction Models ──
+prophet>=1.1.5
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+
+# ── Dashboard ──
+streamlit>=1.28.0
+plotly>=5.17.0
