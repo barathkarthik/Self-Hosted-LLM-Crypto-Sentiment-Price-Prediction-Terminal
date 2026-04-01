@@ -23,6 +23,7 @@ from config import (
     POSITION_SIZE_PCT,
 )
 from src.utils import retry_with_backoff
+from src.database import get_session, PaperTrade, init_db
 
 _RETRY = dict(max_retries=3, base_delay=1.0, backoff=2.0, exceptions=(requests.RequestException,))
 
@@ -141,8 +142,13 @@ class PaperTrader:
             qty = round(notional / price, 6)
             order = self._place_order(symbol, side, qty)
 
+            order_id = str(order.get("orderId", ""))
             logger.info(f"[PaperTrader] {side} {qty:.6f} {symbol} @ ~${price:,.2f} | "
-                        f"notional=${notional:.2f} | orderId={order.get('orderId')}")
+                        f"notional=${notional:.2f} | orderId={order_id}")
+
+            # Persist to local DB
+            self._save_trade(coin, symbol, side, qty, price, notional, confidence, order_id)
+
             return {
                 "status":   "FILLED",
                 "side":     side,
@@ -150,12 +156,54 @@ class PaperTrader:
                 "quantity": qty,
                 "price":    price,
                 "notional": notional,
-                "orderId":  order.get("orderId"),
+                "orderId":  order_id,
                 "raw":      order,
             }
         except Exception as e:
             logger.error(f"[PaperTrader] {coin} {side} failed: {e}")
             return {"status": "ERROR", "reason": str(e)}
+
+    def _save_trade(self, coin, symbol, side, qty, price, notional, confidence, order_id):
+        try:
+            init_db()
+            session = get_session()
+            session.add(PaperTrade(
+                coin=coin, symbol=symbol, side=side, quantity=qty,
+                entry_price=price, notional_usd=notional,
+                confidence=confidence, order_id=order_id,
+                signal_source="MANUAL", status="OPEN",
+            ))
+            session.commit()
+            session.close()
+        except Exception as e:
+            logger.warning(f"[PaperTrader] DB save failed: {e}")
+
+    def get_trade_history(self, limit: int = 50) -> list[dict]:
+        """Return local paper trade history from DB."""
+        try:
+            init_db()
+            session = get_session()
+            trades = session.query(PaperTrade).order_by(
+                PaperTrade.timestamp.desc()
+            ).limit(limit).all()
+            session.close()
+            return [{
+                "time":       t.timestamp.strftime("%m/%d %H:%M"),
+                "coin":       t.coin,
+                "side":       t.side,
+                "qty":        t.quantity,
+                "entry":      t.entry_price,
+                "exit":       t.exit_price,
+                "notional":   t.notional_usd,
+                "pnl_usd":    t.pnl_usd,
+                "pnl_pct":    t.pnl_pct,
+                "confidence": t.confidence,
+                "source":     t.signal_source,
+                "status":     t.status,
+            } for t in trades]
+        except Exception as e:
+            logger.error(f"[PaperTrader] history fetch failed: {e}")
+            return []
 
     def get_portfolio_summary(self) -> dict:
         """Returns USDT balance + non-zero coin balances from testnet account."""

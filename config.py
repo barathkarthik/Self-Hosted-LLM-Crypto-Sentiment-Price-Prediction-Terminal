@@ -31,8 +31,8 @@ ETHERSCAN_API_KEY   = os.getenv("ETHERSCAN_API_KEY", "")
 WHALE_ALERT_API_KEY = os.getenv("WHALE_ALERT_API_KEY", "")  # whale-alert.io — free tier: 10 req/min
 
 # Binance Testnet — paper trading (keys from testnet.binance.vision)
-BINANCE_TESTNET_API_KEY    = os.getenv("BINANCE_TESTNET_API_KEY", "")
-BINANCE_TESTNET_API_SECRET = os.getenv("BINANCE_TESTNET_API_SECRET", "")
+BINANCE_TESTNET_API_KEY    = os.getenv("BINANCE_TESTNET_API_KEY", "").strip()
+BINANCE_TESTNET_API_SECRET = os.getenv("BINANCE_TESTNET_API_SECRET", "").strip()
 BINANCE_TESTNET_BASE_URL   = "https://testnet.binance.vision/api/v3"
 
 # ──────────────────────────────────────────────

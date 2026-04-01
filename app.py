@@ -1465,37 +1465,67 @@ with tab6:
                             unsafe_allow_html=True)
 
     with c_pt_right:
-        st.markdown('<div class="sec-label">Recent Orders</div>', unsafe_allow_html=True)
-        if _pt_active:
-            pt_hist_coin = st.selectbox("Coin", list(COINS.keys()), key="pt_hist_coin",
-                                        label_visibility="collapsed")
-            if st.button("Load Order History", key="pt_load_hist"):
-                symbol = COINS[pt_hist_coin]["binance"]
-                with st.spinner("Loading..."):
-                    orders = pt.get_order_history(symbol, limit=20)
-                if orders:
-                    order_rows = []
-                    for o in orders:
-                        order_rows.append({
-                            "Time":     pd.to_datetime(o.get("time", 0), unit="ms").strftime("%m/%d %H:%M"),
-                            "Side":     o.get("side", ""),
-                            "Symbol":   o.get("symbol", ""),
-                            "Qty":      f"{float(o.get('origQty', 0)):.6f}",
-                            "Price":    fmt_price(float(o.get("price", 0)) or float(o.get("cummulativeQuoteQty", 0)) / max(float(o.get("executedQty", 1)), 1e-9)),
-                            "Status":   o.get("status", ""),
-                        })
-                    st.dataframe(pd.DataFrame(order_rows), use_container_width=True,
-                                 hide_index=True, height=400)
-                else:
-                    st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:1rem;">No orders found</div>',
-                                unsafe_allow_html=True)
+        # ── P&L Summary from local DB ────────────────────────────
+        history = pt.get_trade_history(50)
+        closed  = [t for t in history if t["status"] == "CLOSED"]
+        open_t  = [t for t in history if t["status"] == "OPEN"]
+
+        if history:
+            total_pnl  = sum(t["pnl_usd"] or 0 for t in closed)
+            wins       = sum(1 for t in closed if (t["pnl_pct"] or 0) > 0)
+            win_rate   = wins / len(closed) if closed else 0
+            avg_pnl    = total_pnl / len(closed) if closed else 0
+            pnl_color  = "#3fb950" if total_pnl >= 0 else "#f85149"
+
+            st.markdown(f"""
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:0.6rem;">
+              <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.4rem 0.6rem;text-align:center;">
+                <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">TOTAL P&L</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:700;color:{pnl_color};">
+                  {"+" if total_pnl>=0 else ""}${total_pnl:,.2f}
+                </div>
+              </div>
+              <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.4rem 0.6rem;text-align:center;">
+                <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">WIN RATE</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:700;color:#3fb950;">{win_rate:.0%}</div>
+              </div>
+              <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.4rem 0.6rem;text-align:center;">
+                <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">TRADES</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:700;color:#c9d1d9;">{len(closed)}</div>
+              </div>
+              <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.4rem 0.6rem;text-align:center;">
+                <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">AVG P&L</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:700;color:{pnl_color};">
+                  {"+" if avg_pnl>=0 else ""}${avg_pnl:,.2f}
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-label">Trade History (7 days)</div>', unsafe_allow_html=True)
+        if history:
+            rows = []
+            for t in history:
+                side_color = "#3fb950" if t["side"] == "BUY" else "#f85149"
+                pnl = t["pnl_pct"]
+                pnl_str = f'{"+" if pnl and pnl>=0 else ""}{pnl:.2f}%' if pnl is not None else "OPEN"
+                rows.append({
+                    "Time":       t["time"],
+                    "Coin":       t["coin"],
+                    "Side":       t["side"],
+                    "Entry":      fmt_price(t["entry"]) if t["entry"] else "—",
+                    "Exit":       fmt_price(t["exit"]) if t["exit"] else "—",
+                    "P&L %":      pnl_str,
+                    "P&L $":      f'{"+" if (t["pnl_usd"] or 0)>=0 else ""}${t["pnl_usd"]:,.2f}' if t["pnl_usd"] is not None else "—",
+                    "Conf":       f'{t["confidence"]:.0%}',
+                    "Source":     t["source"],
+                    "Status":     t["status"],
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                         hide_index=True, height=420)
         else:
-            st.markdown("""
-            <div style="height:300px;display:flex;align-items:center;justify-content:center;
-                 background:#0d1117;border:1px solid #161b22;border-radius:6px;color:#484f58;
-                 font-size:0.75rem;font-family:'JetBrains Mono',monospace;letter-spacing:1px;">
-              -- CONFIGURE TESTNET KEYS TO ENABLE --
-            </div>""", unsafe_allow_html=True)
+            st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:1rem;">No trade history yet.</div>',
+                        unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════
