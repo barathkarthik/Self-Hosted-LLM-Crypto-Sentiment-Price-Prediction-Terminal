@@ -12,3 +12,5 @@ models/*.pkl
 .vscode/
 .idea/
 .DS_Store
+
+NEWS_API_KEY= fbe210ee7e0f47bd829d1146d42401cb
