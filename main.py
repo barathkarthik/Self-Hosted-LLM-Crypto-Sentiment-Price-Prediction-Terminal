@@ -15,11 +15,11 @@ logging.basicConfig(level=logging.INFO,
                     handlers=[logging.StreamHandler(), logging.FileHandler("terminal.log")])
 logger = logging.getLogger("Main")
 
-from config import (PRICE_FETCH_INTERVAL, REDDIT_FETCH_INTERVAL,
-                     NEWS_FETCH_INTERVAL, ONCHAIN_FETCH_INTERVAL,
-                     SENTIMENT_RUN_INTERVAL, SIGNAL_RUN_INTERVAL, COINS)
+from config import (PRICE_FETCH_INTERVAL, NEWS_FETCH_INTERVAL,
+                     ONCHAIN_FETCH_INTERVAL, SENTIMENT_RUN_INTERVAL,
+                     SIGNAL_RUN_INTERVAL, COINS)
 from src.database import init_db
-from src.data_loader import RedditCollector, NewsCollector, PriceCollector, WhaleCollector
+from src.data_loader import CryptoPanicCollector, FearGreedCollector, NewsCollector, PriceCollector, WhaleCollector
 from src.sentiment_engine import SentimentEngine
 from src.model import PredictionEngine
 from src.signal_engine import SignalGenerator
@@ -31,17 +31,14 @@ class CryptoTerminal:
         logger.info("  CRYPTO TRADING INTELLIGENCE TERMINAL")
         logger.info("=" * 55)
         init_db()
-        self.price = PriceCollector()
-        self.news = NewsCollector()
-        self.whale = WhaleCollector()
-        self.sentiment = SentimentEngine()
+        self.price      = PriceCollector()
+        self.news       = NewsCollector()
+        self.whale      = WhaleCollector()
+        self.cryptopanic= CryptoPanicCollector()
+        self.feargreed  = FearGreedCollector()
+        self.sentiment  = SentimentEngine()
         self.prediction = PredictionEngine()
-        self.signals = SignalGenerator(self.prediction, self.sentiment)
-        try:
-            self.reddit = RedditCollector()
-        except Exception:
-            self.reddit = None
-            logger.warning("Reddit disabled (missing praw or keys)")
+        self.signals    = SignalGenerator(self.prediction, self.sentiment)
         self._running = False
 
     def load_history(self):
@@ -77,10 +74,11 @@ class CryptoTerminal:
         self.train()
 
         tasks = [
-            (lambda: self.price.collect(), PRICE_FETCH_INTERVAL, "Prices"),
-            (lambda: self.reddit.collect() if self.reddit else None, REDDIT_FETCH_INTERVAL, "Reddit"),
-            (lambda: self.news.collect(), NEWS_FETCH_INTERVAL, "News"),
-            (lambda: self.whale.collect(), ONCHAIN_FETCH_INTERVAL, "OnChain"),
+            (lambda: self.price.collect(),       PRICE_FETCH_INTERVAL,    "Prices"),
+            (lambda: self.news.collect(),        NEWS_FETCH_INTERVAL,     "News"),
+            (lambda: self.cryptopanic.collect(), NEWS_FETCH_INTERVAL,     "Telegram"),
+            (lambda: self.feargreed.collect(),   NEWS_FETCH_INTERVAL,     "FearGreed"),
+            (lambda: self.whale.collect(),       ONCHAIN_FETCH_INTERVAL,  "OnChain"),
             (lambda: self.sentiment.run_full_cycle(), SENTIMENT_RUN_INTERVAL, "Sentiment"),
             (lambda: self.signals.generate_all_signals(), SIGNAL_RUN_INTERVAL, "Signals"),
         ]

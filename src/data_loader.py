@@ -1,60 +1,107 @@
 """
-Data Ingestion Pipeline — 4 collectors running on schedule.
-Reddit (PRAW) | NewsAPI | Binance OHLCV | Etherscan Whales
+Data Ingestion Pipeline — 5 collectors running on schedule.
+Telegram | Fear&Greed | NewsAPI | Binance OHLCV | Etherscan Whales
 All free-tier APIs with built-in rate limiting.
 """
 
-import time, hashlib, datetime, logging, requests
+import time, hashlib, datetime, logging, requests, asyncio
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("DataLoader")
 
-try:
-    import praw
-    HAS_PRAW = True
-except ImportError:
-    HAS_PRAW = False
-    logger.warning("praw not installed — Reddit collection disabled.")
-
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import (
-    REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT,
     NEWS_API_KEY, ETHERSCAN_API_KEY, BINANCE_BASE_URL, COINS,
+    TELEGRAM_API_ID, TELEGRAM_API_HASH,
 )
 from src.database import (
     get_session, RedditPost, NewsArticle, PriceData, WhaleTransaction,
+    SentimentSnapshot,
 )
 
+# ═══════════════════════════════════════════════
+#  TELEGRAM CONFIG
+# ═══════════════════════════════════════════════
+TELEGRAM_CHANNELS = [
+    "bitcoinnews",
+    "cointelegraph",
+    "Bitcoin",
+    "CryptoNewsEnglish",
+    "whale_alert_io",
+]
+
+COIN_KEYWORDS = {
+    "BTC":  ["bitcoin", "btc", "#btc"],
+    "ETH":  ["ethereum", "eth", "ether", "#eth"],
+    "SOL":  ["solana", "sol", "#sol"],
+    "XRP":  ["ripple", "xrp", "#xrp"],
+    "DOGE": ["dogecoin", "doge", "#doge"],
+}
+
 
 # ═══════════════════════════════════════════════
-#  1. REDDIT COLLECTOR
+#  1. TELEGRAM COLLECTOR (replaces Reddit)
 # ═══════════════════════════════════════════════
-class RedditCollector:
+class CryptoPanicCollector:
+    """Reads public Telegram crypto channels using Telethon. No key needed beyond API credentials."""
+
     def __init__(self):
-        if not HAS_PRAW:
-            raise ImportError("pip install praw")
-        self.reddit = praw.Reddit(
-            client_id=REDDIT_CLIENT_ID,
-            client_secret=REDDIT_CLIENT_SECRET,
-            user_agent=REDDIT_USER_AGENT,
-        )
+        self.available = bool(TELEGRAM_API_ID and TELEGRAM_API_HASH)
+        if not self.available:
+            logger.warning("[Telegram] API credentials not set — add TELEGRAM_API_ID and TELEGRAM_API_HASH to .env.local")
 
-    def fetch_posts(self, coin: str, limit: int = 25) -> list[dict]:
+    def _get_client(self):
+        from telethon import TelegramClient
+        session_path = os.path.join(os.path.dirname(__file__), "..", "telegram.session")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        client = TelegramClient(session_path, TELEGRAM_API_ID, TELEGRAM_API_HASH, loop=loop)
+        return client, loop
+
+    def fetch_posts(self, coin: str, limit: int = 30) -> list[dict]:
+        if not self.available:
+            return []
+        keywords = COIN_KEYWORDS.get(coin, [coin.lower()])
         posts = []
-        subreddits = [COINS[coin]["subreddit"], "cryptocurrency"]
-        for sub in subreddits:
-            try:
-                for post in self.reddit.subreddit(sub).new(limit=limit):
-                    posts.append({
-                        "post_id": post.id, "coin": coin,
-                        "subreddit": sub, "title": post.title,
-                        "body": (post.selftext or "")[:2000],
-                        "score": post.score, "num_comments": post.num_comments,
-                        "created_utc": datetime.datetime.utcfromtimestamp(post.created_utc),
-                    })
-            except Exception as e:
-                logger.error(f"[Reddit] r/{sub}: {e}")
+
+        async def _fetch():
+            client, loop = self._get_client()
+            await client.connect()
+            if not await client.is_user_authorized():
+                logger.error("[Telegram] Session expired — run setup_telegram.py again")
+                await client.disconnect()
+                return []
+            results = []
+            for channel in TELEGRAM_CHANNELS:
+                try:
+                    async for msg in client.iter_messages(channel, limit=limit):
+                        if not msg.text:
+                            continue
+                        if not any(kw in msg.text.lower() for kw in keywords):
+                            continue
+                        pid = hashlib.md5(f"{channel}{msg.id}".encode()).hexdigest()
+                        results.append({
+                            "post_id": pid, "coin": coin,
+                            "subreddit": channel,
+                            "title": msg.text[:500],
+                            "body": msg.text[:500],
+                            "score": getattr(msg, "views", 0) or 0,
+                            "num_comments": getattr(msg, "forwards", 0) or 0,
+                            "created_utc": msg.date.replace(tzinfo=None),
+                        })
+                except Exception as e:
+                    logger.error(f"[Telegram] {channel}: {e}")
+            await client.disconnect()
+            return results
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            posts = loop.run_until_complete(_fetch())
+            loop.close()
+        except Exception as e:
+            logger.error(f"[Telegram] fetch_posts {coin}: {e}")
         return posts
 
     def save_posts(self, posts: list[dict]) -> int:
@@ -69,12 +116,54 @@ class RedditCollector:
         return saved
 
     def collect(self, coins: list[str] = None) -> int:
+        if not self.available:
+            return 0
         total = 0
         for coin in (coins or list(COINS.keys())):
             total += self.save_posts(self.fetch_posts(coin))
-            time.sleep(2)
-        logger.info(f"[Reddit] Saved {total} new posts")
+            time.sleep(1)
+        logger.info(f"[Telegram] Saved {total} new posts")
         return total
+
+
+# ═══════════════════════════════════════════════
+#  FEAR & GREED INDEX COLLECTOR
+# ═══════════════════════════════════════════════
+class FearGreedCollector:
+    URL = "https://api.alternative.me/fng/?limit=1"
+
+    def collect(self) -> dict:
+        try:
+            resp = requests.get(self.URL, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()["data"][0]
+            value = int(data["value"])
+            label_map = {
+                range(0, 25):  ("BEARISH", "Extreme Fear"),
+                range(25, 45): ("BEARISH", "Fear"),
+                range(45, 55): ("NEUTRAL", "Neutral"),
+                range(55, 75): ("BULLISH", "Greed"),
+                range(75, 101):("BULLISH", "Extreme Greed"),
+            }
+            sentiment_label, mood = next(
+                (v for k, v in label_map.items() if value in k),
+                ("NEUTRAL", "Neutral")
+            )
+            score = round(value / 100, 2)
+            session = get_session()
+            for coin in COINS:
+                session.add(SentimentSnapshot(
+                    coin=coin, avg_score=score,
+                    label=sentiment_label, sample_count=1,
+                    source="fear_greed", model_used="alternative.me",
+                ))
+            session.commit()
+            session.close()
+            logger.info(f"[FearGreed] {mood} ({value}/100) → score={score}")
+            return {"value": value, "label": sentiment_label, "mood": mood, "score": score}
+        except Exception as e:
+            logger.error(f"[FearGreed] {e}")
+            return {}
 
 
 # ═══════════════════════════════════════════════
@@ -307,13 +396,10 @@ class WhaleCollector:
 # ═══════════════════════════════════════════════
 def run_full_collection(coins=None):
     results = {}
-    try:
-        results["reddit"] = RedditCollector().collect(coins)
-    except Exception as e:
-        logger.warning(f"Reddit skipped: {e}")
-        results["reddit"] = 0
-    results["news"] = NewsCollector().collect(coins)
-    results["prices"] = PriceCollector().collect(coins)
-    results["whales"] = WhaleCollector().collect()
+    results["cryptopanic"] = CryptoPanicCollector().collect(coins)
+    results["fear_greed"]  = FearGreedCollector().collect()
+    results["news"]        = NewsCollector().collect(coins)
+    results["prices"]      = PriceCollector().collect(coins)
+    results["whales"]      = WhaleCollector().collect()
     logger.info(f"[Collection] {results}")
     return results
