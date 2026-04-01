@@ -1,125 +1,59 @@
 """
-Paper Trading Executor — Binance Testnet
-Executes BUY/SELL signals as real orders on Binance Testnet (zero real money).
-Keys: testnet.binance.vision → "Generate HMAC_SHA256 Key"
+Paper Trading Engine — Local Simulation with Live Binance Prices
+Fetches real-time prices from Binance public API (no auth needed).
+Simulates fills locally and persists every trade to SQLite.
+No testnet auth required — zero API errors.
 """
 
-import time
-import hmac
-import hashlib
+import uuid
 import logging
 import requests
+import datetime
 
 logger = logging.getLogger("PaperTrader")
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import (
-    BINANCE_TESTNET_API_KEY,
-    BINANCE_TESTNET_API_SECRET,
-    BINANCE_TESTNET_BASE_URL,
+    BINANCE_BASE_URL,
     COINS,
     MIN_CONFIDENCE,
-    POSITION_SIZE_PCT,
+    SLIPPAGE_PCT,
+    COMMISSION_PCT,
 )
-from src.utils import retry_with_backoff
 from src.database import get_session, PaperTrade, init_db
 
-_RETRY = dict(max_retries=3, base_delay=1.0, backoff=2.0, exceptions=(requests.RequestException,))
-
-# Minimum notional value Binance testnet accepts per order (USD)
 MIN_NOTIONAL_USD = 10.0
+
+# Simulated portfolio — starts with $10,000 USDT
+_PORTFOLIO_KEY = "USDT"
 
 
 class PaperTrader:
+    """
+    Fully local paper trading engine.
+    - Prices: Binance public REST API (no key needed)
+    - Orders: simulated with slippage + commission
+    - Storage: SQLite PaperTrade table
+    """
 
     def __init__(self):
-        self.api_key    = BINANCE_TESTNET_API_KEY
-        self.api_secret = BINANCE_TESTNET_API_SECRET
-        self.base_url   = BINANCE_TESTNET_BASE_URL
-        self.enabled    = bool(self.api_key and self.api_secret)
+        self.enabled = True  # always on — no auth dependency
 
-    # ── Auth helpers ────────────────────────────────────────────
-    def _sign(self, params: dict) -> dict:
-        params["timestamp"] = int(time.time() * 1000)
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        sig = hmac.new(
-            self.api_secret.encode("utf-8"),
-            query.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        params["signature"] = sig
-        return params
-
-    def _headers(self) -> dict:
-        return {"X-MBX-APIKEY": self.api_key}
-
-    # ── Testnet API calls ────────────────────────────────────────
-    @retry_with_backoff(**_RETRY)
-    def get_account(self) -> dict:
-        params = self._sign({})
-        r = requests.get(f"{self.base_url}/account", params=params,
-                         headers=self._headers(), timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    @retry_with_backoff(**_RETRY)
+    # ── Live price from Binance public API ──────────────────────
     def get_price(self, symbol: str) -> float:
-        r = requests.get(f"{self.base_url}/ticker/price",
+        r = requests.get(f"{BINANCE_BASE_URL}/ticker/price",
                          params={"symbol": symbol}, timeout=5)
         r.raise_for_status()
         return float(r.json()["price"])
 
-    @retry_with_backoff(**_RETRY)
-    def _place_order(self, symbol: str, side: str, quantity: float) -> dict:
-        params = self._sign({
-            "symbol":    symbol,
-            "side":      side,          # BUY or SELL
-            "type":      "MARKET",
-            "quantity":  f"{quantity:.6f}",
-        })
-        r = requests.post(f"{self.base_url}/order", params=params,
-                          headers=self._headers(), timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    @retry_with_backoff(**_RETRY)
-    def get_open_orders(self, symbol: str = None) -> list:
-        params = self._sign({"symbol": symbol} if symbol else {})
-        r = requests.get(f"{self.base_url}/openOrders", params=params,
-                         headers=self._headers(), timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    @retry_with_backoff(**_RETRY)
-    def get_order_history(self, symbol: str, limit: int = 20) -> list:
-        params = self._sign({"symbol": symbol, "limit": limit})
-        r = requests.get(f"{self.base_url}/allOrders", params=params,
-                         headers=self._headers(), timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    # ── USDT balance ────────────────────────────────────────────
-    def get_usdt_balance(self) -> float:
-        try:
-            acc = self.get_account()
-            for b in acc.get("balances", []):
-                if b["asset"] == "USDT":
-                    return float(b["free"])
-        except Exception as e:
-            logger.error(f"[PaperTrader] balance fetch failed: {e}")
-        return 0.0
-
     # ── Execute signal ───────────────────────────────────────────
-    def execute_signal(self, coin: str, signal_type: str, confidence: float) -> dict:
+    def execute_signal(self, coin: str, signal_type: str, confidence: float,
+                       notional_override: float = None) -> dict:
         """
-        Execute a BUY or SELL signal on Binance Testnet.
-        Position size = POSITION_SIZE_PCT * confidence-weight of USDT balance.
-        Returns order dict or error dict.
+        Simulate a market order fill with slippage + commission.
+        notional_override: exact USDT amount to trade (from UI input).
         """
-        if not self.enabled:
-            return {"status": "DISABLED", "reason": "Testnet keys not configured"}
-
         if signal_type not in ("BUY", "SELL"):
             return {"status": "SKIPPED", "reason": f"Signal is {signal_type}"}
 
@@ -127,37 +61,40 @@ class PaperTrader:
             return {"status": "SKIPPED", "reason": f"Confidence {confidence:.0%} below minimum"}
 
         symbol = COINS.get(coin, {}).get("binance", f"{coin}USDT")
-        side   = "BUY" if signal_type == "BUY" else "SELL"
+        side   = signal_type  # BUY or SELL
 
         try:
-            price        = self.get_price(symbol)
-            usdt_balance = self.get_usdt_balance()
-            # Confidence-weighted position: 25%–100% of base size
-            weight       = max(0.25, min(1.0, confidence))
-            notional     = usdt_balance * POSITION_SIZE_PCT * weight
+            market_price = self.get_price(symbol)
 
-            if notional < MIN_NOTIONAL_USD:
-                return {"status": "SKIPPED", "reason": f"Notional ${notional:.2f} below min ${MIN_NOTIONAL_USD}"}
+            notional = notional_override if (notional_override and notional_override >= MIN_NOTIONAL_USD) else 100.0
 
-            qty = round(notional / price, 6)
-            order = self._place_order(symbol, side, qty)
+            # Apply slippage (adverse to trader)
+            slip = SLIPPAGE_PCT
+            fill_price = market_price * (1 + slip) if side == "BUY" else market_price * (1 - slip)
+            qty = round(notional / fill_price, 8)
 
-            order_id = str(order.get("orderId", ""))
-            logger.info(f"[PaperTrader] {side} {qty:.6f} {symbol} @ ~${price:,.2f} | "
-                        f"notional=${notional:.2f} | orderId={order_id}")
+            # Commission deducted from notional
+            commission = notional * COMMISSION_PCT
+            net_notional = notional - commission
 
-            # Persist to local DB
-            self._save_trade(coin, symbol, side, qty, price, notional, confidence, order_id)
+            order_id = f"SIM-{uuid.uuid4().hex[:10].upper()}"
+            logger.info(f"[PaperTrader] SIM {side} {qty:.6f} {symbol} "
+                        f"@ ${fill_price:,.4f} (mkt ${market_price:,.4f}) "
+                        f"notional=${notional:.2f} commission=${commission:.3f}")
+
+            self._save_trade(coin, symbol, side, qty, fill_price,
+                             net_notional, confidence, order_id)
 
             return {
-                "status":   "FILLED",
-                "side":     side,
-                "symbol":   symbol,
-                "quantity": qty,
-                "price":    price,
-                "notional": notional,
-                "orderId":  order_id,
-                "raw":      order,
+                "status":       "FILLED",
+                "side":         side,
+                "symbol":       symbol,
+                "quantity":     qty,
+                "price":        fill_price,
+                "market_price": market_price,
+                "notional":     notional,
+                "commission":   commission,
+                "orderId":      order_id,
             }
         except Exception as e:
             logger.error(f"[PaperTrader] {coin} {side} failed: {e}")
@@ -206,16 +143,15 @@ class PaperTrader:
             return []
 
     def get_portfolio_summary(self) -> dict:
-        """Returns USDT balance + non-zero coin balances from testnet account."""
-        if not self.enabled:
-            return {"enabled": False}
+        """Compute simulated portfolio from trade history."""
         try:
-            acc = self.get_account()
-            balances = {
-                b["asset"]: float(b["free"]) + float(b["locked"])
-                for b in acc.get("balances", [])
-                if float(b["free"]) + float(b["locked"]) > 0
+            history = self.get_trade_history(200)
+            closed  = [t for t in history if t["status"] == "CLOSED"]
+            total_pnl = sum(t["pnl_usd"] or 0 for t in closed)
+            return {
+                "enabled":   True,
+                "total_pnl": total_pnl,
+                "trades":    len(closed),
             }
-            return {"enabled": True, "balances": balances}
         except Exception as e:
             return {"enabled": True, "error": str(e)}

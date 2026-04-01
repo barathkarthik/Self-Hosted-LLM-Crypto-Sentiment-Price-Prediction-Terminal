@@ -34,7 +34,7 @@ class Backtester:
     # ──────────────────────────────────────────────────────
     def load_signals(self, coin: str = None, days: int = 30) -> pd.DataFrame:
         session = get_session()
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
         q = session.query(Signal).filter(
             Signal.timestamp >= cutoff,
             Signal.signal_type.in_(["BUY", "SELL"]),
@@ -53,7 +53,7 @@ class Backtester:
 
     def load_prices(self, coin: str, days: int = 30) -> pd.DataFrame:
         session = get_session()
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
         prices = session.query(PriceData).filter(
             PriceData.coin == coin,
             PriceData.timestamp >= cutoff,

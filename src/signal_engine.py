@@ -28,7 +28,7 @@ class SignalGenerator:
 
     def get_whale_activity(self, coin: str, hours: int = 4) -> dict:
         session = get_session()
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
+        cutoff = datetime.datetime.now() - datetime.timedelta(hours=hours)
         txns = session.query(WhaleTransaction).filter(
             WhaleTransaction.coin == coin,
             WhaleTransaction.timestamp >= cutoff,

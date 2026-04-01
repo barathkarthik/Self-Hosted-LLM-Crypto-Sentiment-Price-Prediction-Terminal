@@ -25,7 +25,7 @@ class RedditPost(Base):
     score = Column(Integer, default=0)
     num_comments = Column(Integer, default=0)
     created_utc = Column(DateTime)
-    fetched_at = Column(DateTime, default=datetime.datetime.utcnow)
+    fetched_at = Column(DateTime, default=datetime.datetime.now)
     sentiment_score = Column(Float, nullable=True)
     sentiment_label = Column(String(20), nullable=True)
     __table_args__ = (Index("idx_reddit_coin_time", "coin", "created_utc"),)
@@ -40,7 +40,7 @@ class NewsArticle(Base):
     description = Column(Text)
     url = Column(Text)
     published_at = Column(DateTime)
-    fetched_at = Column(DateTime, default=datetime.datetime.utcnow)
+    fetched_at = Column(DateTime, default=datetime.datetime.now)
     sentiment_score = Column(Float, nullable=True)
     sentiment_label = Column(String(20), nullable=True)
     __table_args__ = (Index("idx_news_coin_time", "coin", "published_at"),)
@@ -70,14 +70,14 @@ class WhaleTransaction(Base):
     block_number = Column(Integer)
     timestamp = Column(DateTime)
     tx_type = Column(String(20))
-    fetched_at = Column(DateTime, default=datetime.datetime.utcnow)
+    fetched_at = Column(DateTime, default=datetime.datetime.now)
     __table_args__ = (Index("idx_whale_coin_time", "coin", "timestamp"),)
 
 class SentimentSnapshot(Base):
     __tablename__ = "sentiment_snapshots"
     id = Column(Integer, primary_key=True, autoincrement=True)
     coin = Column(String(10), nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.datetime.now)
     avg_score = Column(Float)
     label = Column(String(20))
     sample_count = Column(Integer)
@@ -89,7 +89,7 @@ class Signal(Base):
     __tablename__ = "signals"
     id = Column(Integer, primary_key=True, autoincrement=True)
     coin = Column(String(10), nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.datetime.now)
     signal_type = Column(String(10), nullable=False)
     confidence = Column(Float)
     sentiment_score = Column(Float)
@@ -107,7 +107,7 @@ class PredictionLog(Base):
     __tablename__ = "prediction_logs"
     id = Column(Integer, primary_key=True, autoincrement=True)
     coin = Column(String(10), nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.datetime.now)
     horizon = Column(String(10))
     predicted_direction = Column(String(10))
     predicted_change_pct = Column(Float)
@@ -119,7 +119,7 @@ class PredictionLog(Base):
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
     id            = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp     = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp     = Column(DateTime, default=datetime.datetime.now)
     coin          = Column(String(10), nullable=False)
     symbol        = Column(String(20))
     side          = Column(String(10))          # BUY / SELL

@@ -291,7 +291,7 @@ class PriceCollector:
         ms_per_candle = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000}
         step = ms_per_candle.get(interval, 900_000)
 
-        end_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+        end_ms = int(datetime.datetime.now().timestamp() * 1000)
         cur = end_ms - (days * 86_400_000)
         total = 0
         while cur < end_ms:

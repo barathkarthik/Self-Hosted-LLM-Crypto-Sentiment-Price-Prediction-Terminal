@@ -331,7 +331,7 @@ def get_prices(coin, hrs):
     session = get_session()
     rows = session.query(PriceData).filter(
         PriceData.coin == coin,
-        PriceData.timestamp >= datetime.utcnow() - timedelta(hours=hrs),
+        PriceData.timestamp >= datetime.now() - timedelta(hours=hrs),
         PriceData.interval == "15m"
     ).order_by(PriceData.timestamp).all()
     session.close()
@@ -356,7 +356,7 @@ def get_sentiments(coins, hrs):
     session = get_session()
     rows = session.query(SentimentSnapshot).filter(
         SentimentSnapshot.coin.in_(coins),
-        SentimentSnapshot.timestamp >= datetime.utcnow() - timedelta(hours=hrs)
+        SentimentSnapshot.timestamp >= datetime.now() - timedelta(hours=hrs)
     ).order_by(SentimentSnapshot.timestamp).all()
     session.close()
     if not rows: return pd.DataFrame()
@@ -367,7 +367,7 @@ def get_sentiments(coins, hrs):
 def get_whales(hrs):
     session = get_session()
     rows = session.query(WhaleTransaction).filter(
-        WhaleTransaction.timestamp >= datetime.utcnow() - timedelta(hours=hrs)
+        WhaleTransaction.timestamp >= datetime.now() - timedelta(hours=hrs)
     ).order_by(WhaleTransaction.timestamp.desc()).all()
     session.close()
     if not rows: return pd.DataFrame()
@@ -405,7 +405,7 @@ def get_news(coin, limit=10):
 @st.cache_data(ttl=30)
 def get_stats():
     session = get_session()
-    c24 = datetime.utcnow() - timedelta(hours=24)
+    c24 = datetime.now() - timedelta(hours=24)
     s = {
         "reddit":  session.query(RedditPost).filter(RedditPost.created_utc >= c24).count(),
         "news":    session.query(NewsArticle).filter(NewsArticle.published_at >= c24).count(),
@@ -489,7 +489,7 @@ hours = {"6h": 6, "12h": 12, "24h": 24, "48h": 48, "7d": 168}.get(time_window, 2
 # ═══════════════════════════════════════════════════════════════
 #  TOP HEADER BAR
 # ═══════════════════════════════════════════════════════════════
-now_str = datetime.utcnow().strftime("%Y-%m-%d  %H:%M:%S UTC")
+now_str = datetime.now().strftime("%Y-%m-%d  %H:%M:%S IST")
 st.markdown(f"""
 <div class="terminal-header">
   <div style="display:flex;align-items:center;gap:12px;">
@@ -1398,42 +1398,30 @@ with tab6:
     from config import BINANCE_TESTNET_API_KEY
 
     pt = PaperTrader()
-    _pt_active = pt.enabled
+    _pt_active = True
 
-    # ── Status banner ────────────────────────────────────────────
-    if _pt_active:
-        st.markdown("""
-        <div style="padding:0.5rem 0.8rem;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);
-             border-radius:4px;margin-bottom:0.75rem;display:flex;align-items:center;gap:10px;">
-          <span style="color:#3fb950;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">● TESTNET CONNECTED</span>
-          <span style="color:#484f58;font-size:0.65rem;">Binance Testnet — zero real money at risk</span>
-        </div>""", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div style="padding:0.5rem 0.8rem;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);
-             border-radius:4px;margin-bottom:0.75rem;">
-          <span style="color:#f85149;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">● TESTNET KEYS NOT SET</span><br>
-          <span style="color:#8b949e;font-size:0.65rem;">
-            1. Go to <strong>testnet.binance.vision</strong> and log in with GitHub<br>
-            2. Click <strong>Generate HMAC_SHA256 Key</strong><br>
-            3. Paste both keys in <code>.env.local</code> under BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET<br>
-            4. Restart the app
-          </span>
-        </div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="padding:0.5rem 0.8rem;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);
+         border-radius:4px;margin-bottom:0.75rem;display:flex;align-items:center;gap:12px;">
+      <span style="color:#3fb950;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">● PAPER TRADING ACTIVE</span>
+      <span style="color:#484f58;font-size:0.65rem;">Live Binance prices · Simulated fills · Slippage + commission applied · Zero real money</span>
+    </div>""", unsafe_allow_html=True)
 
     c_pt_left, c_pt_right = st.columns([1, 2], gap="small")
 
     with c_pt_left:
         st.markdown('<div class="sec-label">Execute Signal</div>', unsafe_allow_html=True)
-        pt_coin   = st.selectbox("Coin", list(COINS.keys()), key="pt_coin")
-        pt_signal = st.selectbox("Signal", ["BUY", "SELL"], key="pt_signal")
-        pt_conf   = st.slider("Confidence", 0.50, 1.00, 0.70, 0.01, key="pt_conf")
-        pt_run    = st.button("▶  EXECUTE PAPER TRADE", use_container_width=True,
-                              type="primary", disabled=not _pt_active)
+        pt_coin     = st.selectbox("Coin", list(COINS.keys()), key="pt_coin")
+        pt_signal   = st.selectbox("Signal", ["BUY", "SELL"], key="pt_signal")
+        pt_conf     = st.slider("Confidence", 0.50, 1.00, 0.70, 0.01, key="pt_conf")
+        pt_amount   = st.number_input("Trade Amount (USDT)", min_value=10.0,
+                                      max_value=10000.0, value=100.0, step=10.0, key="pt_amount")
+        pt_run      = st.button("▶  EXECUTE PAPER TRADE", use_container_width=True,
+                                type="primary", disabled=not _pt_active)
 
         if pt_run:
             with st.spinner("Placing order on Binance Testnet..."):
-                result = pt.execute_signal(pt_coin, pt_signal, pt_conf)
+                result = pt.execute_signal(pt_coin, pt_signal, pt_conf, notional_override=pt_amount)
             status = result.get("status", "ERROR")
             if status == "FILLED":
                 st.success(f"Order filled — {result['side']} {result['quantity']:.6f} "
@@ -1444,25 +1432,17 @@ with tab6:
             else:
                 st.error(f"{status}: {result.get('reason', 'unknown error')}")
 
-        st.markdown('<div class="sec-label" style="margin-top:1rem;">Portfolio</div>', unsafe_allow_html=True)
-        if st.button("Refresh Balances", disabled=not _pt_active, key="pt_refresh"):
-            with st.spinner("Fetching testnet account..."):
-                portfolio = pt.get_portfolio_summary()
-            if portfolio.get("error"):
-                st.error(portfolio["error"])
-            elif portfolio.get("balances"):
-                for asset, bal in portfolio["balances"].items():
-                    st.markdown(
-                        f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
-                        f'border-bottom:1px solid #161b22;">'
-                        f'<span style="font-size:0.7rem;color:#8b949e;">{asset}</span>'
-                        f'<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:#c9d1d9;">{bal:.6f}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.markdown('<div style="font-size:0.7rem;color:#484f58;">No balances found</div>',
-                            unsafe_allow_html=True)
+        st.markdown('<div class="sec-label" style="margin-top:1rem;">Live Prices</div>', unsafe_allow_html=True)
+        if st.button("Fetch Current Prices", key="pt_refresh"):
+            price_rows = []
+            for c in list(COINS.keys()):
+                try:
+                    sym = COINS[c]["binance"]
+                    px = pt.get_price(sym)
+                    price_rows.append(f'<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #161b22;"><span style="font-size:0.7rem;color:#8b949e;">{c}/USDT</span><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:#c9d1d9;">${px:,.4f}</span></div>')
+                except Exception:
+                    pass
+            st.markdown("".join(price_rows), unsafe_allow_html=True)
 
     with c_pt_right:
         # ── P&L Summary from local DB ────────────────────────────
