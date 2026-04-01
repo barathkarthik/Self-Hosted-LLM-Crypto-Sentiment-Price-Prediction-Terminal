@@ -1168,9 +1168,9 @@ with tab5:
           <div style="font-size:0.65rem;color:#8b949e;line-height:1.7;">
             ● Replays BUY/SELL signals on 15m OHLCV<br>
             ● 4-hour exit horizon per trade<br>
-            ● 10% position size per signal<br>
-            ● Long-only (BUY) and short (SELL)<br>
-            ● Metrics: Sharpe, Win Rate, Max DD
+            ● Slippage 0.1% per side + 0.1% commission<br>
+            ● Confidence-weighted position sizing<br>
+            ● Metrics: Sharpe, Sortino, CAGR, Max DD
           </div>
         </div>""", unsafe_allow_html=True)
 
@@ -1191,13 +1191,22 @@ with tab5:
                         st.markdown(f'<div style="padding:0.5rem;color:#f85149;font-size:0.75rem;">{coin}: {m["error"]}</div>', unsafe_allow_html=True)
                         continue
                     st.markdown(f'<div class="sec-label">{coin} — Backtest Results</div>', unsafe_allow_html=True)
-                    r1, r2, r3, r4, r5, r6 = st.columns(6, gap="small")
+                    r1, r2, r3, r4, r5, r6, r7, r8 = st.columns(8, gap="small")
                     r1.metric("Trades",    m["total_trades"])
                     r2.metric("Win Rate",  f"{m['win_rate']:.1%}")
-                    r3.metric("Wins",      m["wins"])
-                    r4.metric("Sharpe",    f"{m['sharpe_ratio']:.2f}")
+                    r3.metric("Sharpe",    f"{m['sharpe_ratio']:.2f}")
+                    r4.metric("Sortino",   f"{m['sortino_ratio']:.2f}")
                     r5.metric("Return",    f"{m['total_return_pct']:.1f}%")
-                    r6.metric("Max DD",    f"{m['max_drawdown_pct']:.1f}%")
+                    r6.metric("CAGR",      f"{m['cagr_pct']:.1f}%")
+                    r7.metric("Max DD",    f"{m['max_drawdown_pct']:.1f}%")
+                    r8.metric("Capital",   f"${m['final_capital']:,.0f}")
+                    st.markdown(
+                        f'<div style="font-size:0.62rem;color:#484f58;padding:0.25rem 0 0.5rem;">'
+                        f'⚡ Slippage {m["slippage_pct"]:.1f}% per side &nbsp;|&nbsp; '
+                        f'Commission {m["commission_pct"]:.1f}% &nbsp;|&nbsp; '
+                        f'Position: confidence-weighted</div>',
+                        unsafe_allow_html=True,
+                    )
 
                     if m.get("capital_history"):
                         fig_bt = go.Figure()
@@ -1225,8 +1234,39 @@ with tab5:
                         )
                         st.plotly_chart(fig_bt, use_container_width=True, config={"displayModeBar": False})
 
+                    # Rolling Sharpe chart (126-trade window) — ported from SRL comparison_dashboard
+                    if m.get("rolling_sharpe"):
+                        fig_rs = go.Figure()
+                        fig_rs.add_trace(go.Scatter(
+                            y=m["rolling_sharpe"], mode="lines",
+                            line=dict(color="#58a6ff", width=1.5),
+                            name="Rolling Sharpe (126)",
+                        ))
+                        fig_rs.add_hline(y=0, line_dash="dot",
+                                         line_color="rgba(255,255,255,0.1)", line_width=1)
+                        fig_rs.add_hline(y=1, line_dash="dot",
+                                         line_color="rgba(63,185,80,0.3)", line_width=1,
+                                         annotation_text="Sharpe = 1",
+                                         annotation_font=dict(size=8, color="#3fb950"))
+                        fig_rs.update_layout(
+                            height=140,
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            margin=dict(l=0, r=0, t=20, b=0), showlegend=False,
+                            title=dict(text="Rolling Sharpe (126-trade window)",
+                                       font=dict(size=9, color="#484f58"), x=0),
+                            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+                            yaxis=dict(gridcolor="#161b22", zeroline=False,
+                                       tickfont=dict(size=9, family="JetBrains Mono"),
+                                       color="#484f58", side="right"),
+                        )
+                        st.plotly_chart(fig_rs, use_container_width=True,
+                                        config={"displayModeBar": False})
+
                     if m.get("trades"):
-                        trade_df = pd.DataFrame(m["trades"])
+                        # Select only display columns — backtester now returns extra slip cols
+                        trade_df = pd.DataFrame(m["trades"])[
+                            ["coin", "signal_type", "entry", "exit", "pnl_pct", "correct", "confidence"]
+                        ]
                         trade_df["pnl_pct"] = trade_df["pnl_pct"].apply(lambda x: f"{'+'if x>=0 else ''}{x:.2f}%")
                         trade_df["entry"]   = trade_df["entry"].apply(fmt_price)
                         trade_df["exit"]    = trade_df["exit"].apply(fmt_price)

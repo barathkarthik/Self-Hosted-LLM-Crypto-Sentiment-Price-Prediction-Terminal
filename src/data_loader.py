@@ -14,6 +14,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import (
     NEWS_API_KEY, ETHERSCAN_API_KEY, BINANCE_BASE_URL, COINS,
     TELEGRAM_API_ID, TELEGRAM_API_HASH,
+    API_MAX_RETRIES, API_BACKOFF_BASE, API_BACKOFF_MULTIPLIER,
+)
+from src.utils import retry_with_backoff
+
+_RETRY = dict(
+    max_retries=API_MAX_RETRIES,
+    base_delay=API_BACKOFF_BASE,
+    backoff=API_BACKOFF_MULTIPLIER,
+    exceptions=(requests.RequestException, Exception),
 )
 from src.database import (
     get_session, RedditPost, NewsArticle, PriceData, WhaleTransaction,
@@ -132,11 +141,15 @@ class CryptoPanicCollector:
 class FearGreedCollector:
     URL = "https://api.alternative.me/fng/?limit=1"
 
+    @retry_with_backoff(**_RETRY)
+    def _fetch_raw(self) -> dict:
+        resp = requests.get(self.URL, timeout=10)
+        resp.raise_for_status()
+        return resp.json()["data"][0]
+
     def collect(self) -> dict:
         try:
-            resp = requests.get(self.URL, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()["data"][0]
+            data = self._fetch_raw()
             value = int(data["value"])
             label_map = {
                 range(0, 25):  ("BEARISH", "Extreme Fear"),
@@ -162,7 +175,7 @@ class FearGreedCollector:
             logger.info(f"[FearGreed] {mood} ({value}/100) → score={score}")
             return {"value": value, "label": sentiment_label, "mood": mood, "score": score}
         except Exception as e:
-            logger.error(f"[FearGreed] {e}")
+            logger.error(f"[FearGreed] failed after retries: {e}")
             return {}
 
 
@@ -172,33 +185,30 @@ class FearGreedCollector:
 class NewsCollector:
     BASE_URL = "https://newsapi.org/v2/everything"
 
+    @retry_with_backoff(**_RETRY)
     def fetch_news(self, coin: str, page_size: int = 20) -> list[dict]:
         if not NEWS_API_KEY:
             return []
         name = COINS[coin]["name"]
-        try:
-            resp = requests.get(self.BASE_URL, params={
-                "q": f"{name} OR {coin} cryptocurrency",
-                "language": "en", "sortBy": "publishedAt",
-                "pageSize": page_size, "apiKey": NEWS_API_KEY,
-            }, timeout=10)
-            resp.raise_for_status()
-            articles = []
-            for a in resp.json().get("articles", []):
-                aid = hashlib.md5((a.get("url", "") + a.get("title", "")).encode()).hexdigest()
-                pub = None
-                if a.get("publishedAt"):
-                    pub = datetime.datetime.fromisoformat(a["publishedAt"].replace("Z", "+00:00"))
-                articles.append({
-                    "article_id": aid, "coin": coin,
-                    "source": a.get("source", {}).get("name", ""),
-                    "title": a.get("title", ""), "description": a.get("description", ""),
-                    "url": a.get("url", ""), "published_at": pub,
-                })
-            return articles
-        except Exception as e:
-            logger.error(f"[News] {coin}: {e}")
-            return []
+        resp = requests.get(self.BASE_URL, params={
+            "q": f"{name} OR {coin} cryptocurrency",
+            "language": "en", "sortBy": "publishedAt",
+            "pageSize": page_size, "apiKey": NEWS_API_KEY,
+        }, timeout=10)
+        resp.raise_for_status()
+        articles = []
+        for a in resp.json().get("articles", []):
+            aid = hashlib.md5((a.get("url", "") + a.get("title", "")).encode()).hexdigest()
+            pub = None
+            if a.get("publishedAt"):
+                pub = datetime.datetime.fromisoformat(a["publishedAt"].replace("Z", "+00:00"))
+            articles.append({
+                "article_id": aid, "coin": coin,
+                "source": a.get("source", {}).get("name", ""),
+                "title": a.get("title", ""), "description": a.get("description", ""),
+                "url": a.get("url", ""), "published_at": pub,
+            })
+        return articles
 
     def save_articles(self, articles: list[dict]) -> int:
         session = get_session()
@@ -214,7 +224,10 @@ class NewsCollector:
     def collect(self, coins: list[str] = None) -> int:
         total = 0
         for coin in (coins or list(COINS.keys())):
-            total += self.save_articles(self.fetch_news(coin))
+            try:
+                total += self.save_articles(self.fetch_news(coin))
+            except Exception as e:
+                logger.error(f"[News] {coin} failed after all retries: {e}")
             time.sleep(1)
         logger.info(f"[News] Saved {total} new articles")
         return total
@@ -225,32 +238,28 @@ class NewsCollector:
 # ═══════════════════════════════════════════════
 class PriceCollector:
 
+    @retry_with_backoff(**_RETRY)
     def fetch_klines(self, coin: str, interval: str = "15m", limit: int = 100) -> list[dict]:
         symbol = COINS[coin]["binance"]
-        try:
-            resp = requests.get(f"{BINANCE_BASE_URL}/klines",
-                                params={"symbol": symbol, "interval": interval, "limit": limit},
-                                timeout=10)
-            resp.raise_for_status()
-            return [{
-                "coin": coin,
-                "timestamp": datetime.datetime.utcfromtimestamp(k[0] / 1000),
-                "open": float(k[1]), "high": float(k[2]),
-                "low": float(k[3]), "close": float(k[4]),
-                "volume": float(k[5]), "interval": interval,
-            } for k in resp.json()]
-        except Exception as e:
-            logger.error(f"[Price] {coin}: {e}")
-            return []
+        resp = requests.get(f"{BINANCE_BASE_URL}/klines",
+                            params={"symbol": symbol, "interval": interval, "limit": limit},
+                            timeout=10)
+        resp.raise_for_status()
+        return [{
+            "coin": coin,
+            "timestamp": datetime.datetime.utcfromtimestamp(k[0] / 1000),
+            "open": float(k[1]), "high": float(k[2]),
+            "low": float(k[3]), "close": float(k[4]),
+            "volume": float(k[5]), "interval": interval,
+        } for k in resp.json()]
 
+    @retry_with_backoff(**_RETRY)
     def fetch_current_price(self, coin: str) -> float | None:
         symbol = COINS[coin]["binance"]
-        try:
-            resp = requests.get(f"{BINANCE_BASE_URL}/ticker/price",
-                                params={"symbol": symbol}, timeout=5)
-            return float(resp.json()["price"])
-        except Exception:
-            return None
+        resp = requests.get(f"{BINANCE_BASE_URL}/ticker/price",
+                            params={"symbol": symbol}, timeout=5)
+        resp.raise_for_status()
+        return float(resp.json()["price"])
 
     def save_klines(self, candles: list[dict]) -> int:
         session = get_session()
@@ -267,7 +276,10 @@ class PriceCollector:
     def collect(self, coins: list[str] = None, interval: str = "15m") -> int:
         total = 0
         for coin in (coins or list(COINS.keys())):
-            total += self.save_klines(self.fetch_klines(coin, interval))
+            try:
+                total += self.save_klines(self.fetch_klines(coin, interval))
+            except Exception as e:
+                logger.error(f"[Price] {coin} failed after all retries: {e}")
             time.sleep(0.5)
         logger.info(f"[Price] Saved {total} new candles")
         return total
@@ -337,24 +349,37 @@ class WhaleCollector:
             return "ACCUMULATION"
         return "TRANSFER"
 
+    @retry_with_backoff(**_RETRY)
+    def _fetch_block_number(self) -> int:
+        r = requests.get(self.BASE_URL, params={
+            "module": "proxy", "action": "eth_blockNumber",
+            "apikey": ETHERSCAN_API_KEY,
+        }, timeout=10)
+        r.raise_for_status()
+        return int(r.json()["result"], 16)
+
+    @retry_with_backoff(**_RETRY)
+    def _fetch_block(self, blk_hex: str) -> dict:
+        r = requests.get(self.BASE_URL, params={
+            "module": "proxy", "action": "eth_getBlockByNumber",
+            "tag": blk_hex, "boolean": "true", "apikey": ETHERSCAN_API_KEY,
+        }, timeout=10)
+        r.raise_for_status()
+        return r.json().get("result", {})
+
     def fetch_whale_txns(self, min_eth: float = 100) -> list[dict]:
         if not ETHERSCAN_API_KEY:
             return []
         try:
-            r = requests.get(self.BASE_URL, params={
-                "module": "proxy", "action": "eth_blockNumber",
-                "apikey": ETHERSCAN_API_KEY,
-            }, timeout=10)
-            latest = int(r.json()["result"], 16)
+            latest = self._fetch_block_number()
             eth_price = self._get_eth_price()
             txns = []
             for offset in range(5):
-                blk = hex(latest - offset)
-                r2 = requests.get(self.BASE_URL, params={
-                    "module": "proxy", "action": "eth_getBlockByNumber",
-                    "tag": blk, "boolean": "true", "apikey": ETHERSCAN_API_KEY,
-                }, timeout=10)
-                blk_data = r2.json().get("result", {})
+                try:
+                    blk_data = self._fetch_block(hex(latest - offset))
+                except Exception as e:
+                    logger.warning(f"[Whale] block {latest - offset} failed: {e}")
+                    continue
                 if not blk_data or not blk_data.get("transactions"):
                     continue
                 blk_time = datetime.datetime.utcfromtimestamp(int(blk_data["timestamp"], 16))
@@ -372,7 +397,7 @@ class WhaleCollector:
                 time.sleep(0.25)
             return txns
         except Exception as e:
-            logger.error(f"[Whale] {e}")
+            logger.error(f"[Whale] failed after all retries: {e}")
             return []
 
     def save_txns(self, txns: list[dict]) -> int:

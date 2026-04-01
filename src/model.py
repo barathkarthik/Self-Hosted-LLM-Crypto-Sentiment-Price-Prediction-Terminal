@@ -4,7 +4,7 @@ Primary:     Facebook Prophet — fast (~30s train), CPU-friendly
 Alternative: XGBoost classifier — uses all 27 engineered features
 """
 
-import os, pickle, logging, datetime
+import os, pickle, logging, datetime, json
 import pandas as pd
 import numpy as np
 
@@ -12,7 +12,7 @@ logger = logging.getLogger("Model")
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from config import MODEL_SAVE_PATH, COINS
+from config import MODEL_SAVE_PATH, COINS, FEATURE_MANIFEST_PATH
 from src.database import get_session, PriceData, SentimentSnapshot, WhaleTransaction
 from src.feature_engineering import (
     compute_technical_indicators, add_sentiment_features,
@@ -105,7 +105,10 @@ class XGBoostPredictor:
         self.models[coin] = {"model": m, "features": feat_cols}
         with open(os.path.join(MODEL_SAVE_PATH, f"xgb_{coin}.pkl"), "wb") as f:
             pickle.dump(self.models[coin], f)
-        logger.info(f"[XGBoost] {coin}: {acc:.1%} accuracy")
+        # Save feature manifest for alignment at inference time (ported from SRL)
+        with open(FEATURE_MANIFEST_PATH, "w") as f:
+            json.dump(feat_cols, f, indent=2)
+        logger.info(f"[XGBoost] {coin}: {acc:.1%} accuracy | manifest saved ({len(feat_cols)} cols)")
         return {"coin": coin, "directional_accuracy": acc, "model": "xgboost"}
 
     def predict(self, coin: str, features: dict) -> dict:
@@ -119,7 +122,19 @@ class XGBoostPredictor:
         if not data:
             return {"error": f"no model for {coin}"}
         fc = data["features"]
-        X = np.array([[features.get(c, 0) for c in fc]])
+        # Align to feature manifest if available (prevents shape mismatch — ported from SRL)
+        if FEATURE_MANIFEST_PATH.exists():
+            try:
+                with open(FEATURE_MANIFEST_PATH) as mf:
+                    expected = json.load(mf)
+                # Use manifest columns: fill missing with 0, drop extras, reorder
+                aligned = {c: features.get(c, 0.0) for c in expected}
+                X = np.array([[aligned[c] for c in expected]])
+            except Exception as e:
+                logger.warning(f"[XGBoost] manifest alignment failed ({e}), using model features")
+                X = np.array([[features.get(c, 0) for c in fc]])
+        else:
+            X = np.array([[features.get(c, 0) for c in fc]])
         proba = data["model"].predict_proba(X)[0]
         d = "UP" if proba[1] > 0.55 else "DOWN" if proba[0] > 0.55 else "SIDEWAYS"
         return {"coin": coin, "direction": d, "confidence": float(max(proba)), "model": "xgboost"}

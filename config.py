@@ -80,3 +80,24 @@ NEWS_FETCH_INTERVAL = 300
 ONCHAIN_FETCH_INTERVAL = 180
 SENTIMENT_RUN_INTERVAL = 120
 SIGNAL_RUN_INTERVAL = 60
+
+# ──────────────────────────────────────────────
+# Backtesting & Risk Controls  (ported from SRL)
+# ──────────────────────────────────────────────
+SLIPPAGE_PCT       = float(os.getenv("SLIPPAGE_PCT",       "0.001"))  # 0.1% per side
+COMMISSION_PCT     = float(os.getenv("COMMISSION_PCT",     "0.001"))  # 0.1% round-trip fee
+POSITION_SIZE_PCT  = float(os.getenv("POSITION_SIZE_PCT",  "0.10"))   # 10% capital per trade
+MIN_CONFIDENCE     = float(os.getenv("MIN_CONFIDENCE",     "0.55"))   # skip signals below this
+WHALE_NET_FLOW_MIN = float(os.getenv("WHALE_NET_FLOW_MIN", "500000")) # $500k net-flow threshold
+
+# ──────────────────────────────────────────────
+# API Resilience — exponential backoff (from SRL)
+# ──────────────────────────────────────────────
+API_MAX_RETRIES        = int(os.getenv("API_MAX_RETRIES",    "3"))
+API_BACKOFF_BASE       = float(os.getenv("API_BACKOFF_BASE", "1.0"))
+API_BACKOFF_MULTIPLIER = float(os.getenv("API_BACKOFF_MULT", "2.0"))
+
+# ──────────────────────────────────────────────
+# Feature Manifest — model/feature alignment (from SRL)
+# ──────────────────────────────────────────────
+FEATURE_MANIFEST_PATH = BASE_DIR / "models" / "feature_manifest.json"

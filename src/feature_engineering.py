@@ -54,6 +54,25 @@ def compute_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["volatility_24"] = df["returns_1"].rolling(24).std()
     df["volatility_96"] = df["returns_1"].rolling(96).std()
 
+    # ── SRL microstructure features ─────────────────────────────────────
+    # Volatility Regime: short-vol / long-vol ratio — detects high/low vol environments
+    df["vol_regime"] = df["volatility_24"] / (df["volatility_96"] + 1e-10)
+
+    # Entropy (50-candle): market randomness / choppiness proxy
+    # High entropy = choppy/random; low entropy = trending
+    def _safe_entropy(series: pd.Series) -> float:
+        counts = pd.cut(series.dropna(), bins=10, labels=False)
+        probs = counts.value_counts(normalize=True).values
+        probs = probs[probs > 0]
+        return float(-np.sum(probs * np.log2(probs + 1e-10)))
+
+    df["entropy_50"] = df["returns_1"].rolling(50).apply(_safe_entropy, raw=False)
+
+    # Z-score of 5-period returns: mean-reversion signal
+    ret5 = df["close"].pct_change(5)
+    df["zscore_ret5"] = (ret5 - ret5.rolling(100).mean()) / (ret5.rolling(100).std() + 1e-10)
+    # ────────────────────────────────────────────────────────────────────
+
     # ATR
     tr = pd.DataFrame({
         "hl": df["high"] - df["low"],
@@ -143,6 +162,8 @@ FEATURE_COLS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos",
     "sentiment_avg", "sentiment_momentum", "sentiment_volume",
     "whale_net_flow", "whale_tx_count",
+    # SRL microstructure additions
+    "vol_regime", "entropy_50", "zscore_ret5",
 ]
 
 

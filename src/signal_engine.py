@@ -10,7 +10,7 @@ logger = logging.getLogger("SignalEngine")
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from config import BULLISH_THRESHOLD, BEARISH_THRESHOLD, WHALE_ALERT_MIN_USD, COINS
+from config import BULLISH_THRESHOLD, BEARISH_THRESHOLD, WHALE_ALERT_MIN_USD, WHALE_NET_FLOW_MIN, COINS
 from src.database import get_session, Signal, SentimentSnapshot, WhaleTransaction
 
 
@@ -41,7 +41,7 @@ class SignalGenerator:
         acc = sum(t.value_usd for t in txns if t.tx_type == "ACCUMULATION")
         dist = sum(t.value_usd for t in txns if t.tx_type == "DISTRIBUTION")
         net = acc - dist
-        status = "ACCUMULATING" if net > 500_000 else "DISTRIBUTING" if net < -500_000 else "NEUTRAL"
+        status = "ACCUMULATING" if net > WHALE_NET_FLOW_MIN else "DISTRIBUTING" if net < -WHALE_NET_FLOW_MIN else "NEUTRAL"
         return {"status": status, "net_flow_usd": net, "tx_count": len(txns),
                 "accumulation_usd": acc, "distribution_usd": dist}
 
