@@ -27,7 +27,8 @@ _tg_id = os.getenv("TELEGRAM_API_ID", "0")
 TELEGRAM_API_ID     = int(_tg_id) if _tg_id.isdigit() else 0
 TELEGRAM_API_HASH   = os.getenv("TELEGRAM_API_HASH", "")
 
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+ETHERSCAN_API_KEY   = os.getenv("ETHERSCAN_API_KEY", "")
+WHALE_ALERT_API_KEY = os.getenv("WHALE_ALERT_API_KEY", "")  # whale-alert.io — free tier: 10 req/min
 
 # ──────────────────────────────────────────────
 # Binance (public endpoints — no API key needed)

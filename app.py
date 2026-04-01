@@ -1169,6 +1169,17 @@ with tab3:
 #  TAB 4 — WHALE TRACKER
 # ────────────────────────────────────────────────────────────────
 with tab4:
+    # Data source badge
+    _wa_key = os.getenv("WHALE_ALERT_API_KEY", "")
+    _wa_active = bool(_wa_key)
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">
+      <span style="font-size:0.6rem;color:#484f58;text-transform:uppercase;letter-spacing:1px;">Data Source</span>
+      {'<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.65rem;padding:2px 8px;background:rgba(63,185,80,0.15);border:1px solid rgba(63,185,80,0.4);border-radius:3px;color:#3fb950;">● WHALE ALERT — MULTI-CHAIN</span>' if _wa_active else '<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.65rem;padding:2px 8px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:3px;color:#58a6ff;">● ETHERSCAN — ETH ONLY</span>'}
+      {'<span style="font-size:0.6rem;color:#484f58;margin-left:4px;">BTC · ETH · SOL · XRP · DOGE · USDT · USDC · 20+ chains</span>' if _wa_active else '<span style="font-size:0.6rem;color:#484f58;margin-left:4px;">Set WHALE_ALERT_API_KEY for multi-chain coverage</span>'}
+    </div>
+    """, unsafe_allow_html=True)
+
     wdf = get_whales(hours)
     if not wdf.empty:
         acc  = wdf[wdf["type"] == "ACCUMULATION"]["value_usd"].sum()

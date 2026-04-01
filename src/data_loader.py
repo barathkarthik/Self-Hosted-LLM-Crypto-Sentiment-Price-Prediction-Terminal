@@ -12,7 +12,8 @@ logger = logging.getLogger("DataLoader")
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import (
-    NEWS_API_KEY, ETHERSCAN_API_KEY, BINANCE_BASE_URL, COINS,
+    NEWS_API_KEY, ETHERSCAN_API_KEY, WHALE_ALERT_API_KEY,
+    BINANCE_BASE_URL, COINS,
     TELEGRAM_API_ID, TELEGRAM_API_HASH,
     API_MAX_RETRIES, API_BACKOFF_BASE, API_BACKOFF_MULTIPLIER,
 )
@@ -320,7 +321,114 @@ class PriceCollector:
 
 
 # ═══════════════════════════════════════════════
-#  4. WHALE / ON-CHAIN TRACKER
+#  4a. WHALE ALERT COLLECTOR  (primary — multi-chain)
+#      API: whale-alert.io  |  free tier: 10 req/min, 1000 req/day
+#      Covers: BTC, ETH, SOL, XRP, DOGE, USDT, USDC and 20+ chains
+# ═══════════════════════════════════════════════
+class WhaleAlertCollector:
+    BASE_URL = "https://api.whale-alert.io/v1"
+
+    # Map Whale Alert blockchain symbols → our COINS keys
+    CHAIN_MAP = {
+        "bitcoin":   "BTC",
+        "ethereum":  "ETH",
+        "solana":    "SOL",
+        "ripple":    "XRP",
+        "dogecoin":  "DOGE",
+        "tron":      "OTHER",
+        "stellar":   "OTHER",
+        "cardano":   "OTHER",
+    }
+
+    # Whale Alert transaction types → our classification
+    TYPE_MAP = {
+        "transfer":       "TRANSFER",
+        "mint":           "ACCUMULATION",
+        "burn":           "DISTRIBUTION",
+        "lock":           "ACCUMULATION",
+        "unlock":         "DISTRIBUTION",
+    }
+
+    @retry_with_backoff(**_RETRY)
+    def _fetch_transactions(self, min_usd: int = 500_000, lookback_seconds: int = 3600) -> list[dict]:
+        start = int(time.time()) - lookback_seconds
+        r = requests.get(
+            f"{self.BASE_URL}/transactions",
+            params={
+                "api_key":   WHALE_ALERT_API_KEY,
+                "min_value": min_usd,
+                "start":     start,
+                "cursor":    "start",
+                "limit":     100,
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("result") != "success":
+            raise ValueError(f"Whale Alert API error: {data.get('message', 'unknown')}")
+        return data.get("transactions", [])
+
+    def _classify_wa(self, tx: dict) -> str:
+        """Classify Whale Alert tx: exchange inflow → DISTRIBUTION, outflow → ACCUMULATION."""
+        from_owner = (tx.get("from", {}).get("owner_type") or "").lower()
+        to_owner   = (tx.get("to",   {}).get("owner_type") or "").lower()
+        tx_type    = (tx.get("transaction_type") or "").lower()
+
+        if to_owner == "exchange":
+            return "DISTRIBUTION"    # coins moving to exchange — likely to sell
+        if from_owner == "exchange":
+            return "ACCUMULATION"    # coins leaving exchange — likely accumulating
+        return self.TYPE_MAP.get(tx_type, "TRANSFER")
+
+    def fetch_whale_txns(self, min_usd: int = 500_000) -> list[dict]:
+        if not WHALE_ALERT_API_KEY:
+            logger.debug("[WhaleAlert] API key not set — skipping")
+            return []
+        try:
+            raw = self._fetch_transactions(min_usd=min_usd)
+            txns = []
+            for tx in raw:
+                blockchain = (tx.get("blockchain") or "").lower()
+                coin       = self.CHAIN_MAP.get(blockchain, "OTHER")
+                symbol     = (tx.get("symbol") or blockchain or "?").upper()
+
+                txns.append({
+                    "tx_hash":       tx.get("hash") or f"wa_{tx.get('id','')}",
+                    "coin":          coin if coin != "OTHER" else symbol[:5],
+                    "from_address":  (tx.get("from") or {}).get("address", ""),
+                    "to_address":    (tx.get("to")   or {}).get("address", ""),
+                    "value_token":   float(tx.get("amount", 0)),
+                    "value_usd":     float(tx.get("amount_usd", 0)),
+                    "block_number":  0,
+                    "timestamp":     datetime.datetime.utcfromtimestamp(tx.get("timestamp", time.time())),
+                    "tx_type":       self._classify_wa(tx),
+                })
+            logger.info(f"[WhaleAlert] Fetched {len(txns)} transactions")
+            return txns
+        except Exception as e:
+            logger.error(f"[WhaleAlert] failed: {e}")
+            return []
+
+    def save_txns(self, txns: list[dict]) -> int:
+        session = get_session()
+        saved = 0
+        for t in txns:
+            if not session.query(WhaleTransaction).filter_by(tx_hash=t["tx_hash"]).first():
+                session.add(WhaleTransaction(**t))
+                saved += 1
+        session.commit()
+        session.close()
+        logger.info(f"[WhaleAlert] Saved {saved} new transactions")
+        return saved
+
+    def collect(self) -> int:
+        return self.save_txns(self.fetch_whale_txns())
+
+
+# ═══════════════════════════════════════════════
+#  4b. ETHERSCAN COLLECTOR  (fallback — ETH-only)
+#      Used when WHALE_ALERT_API_KEY is not set
 # ═══════════════════════════════════════════════
 class WhaleCollector:
     BASE_URL = "https://api.etherscan.io/api"
@@ -425,6 +533,13 @@ def run_full_collection(coins=None):
     results["fear_greed"]  = FearGreedCollector().collect()
     results["news"]        = NewsCollector().collect(coins)
     results["prices"]      = PriceCollector().collect(coins)
-    results["whales"]      = WhaleCollector().collect()
+
+    # Whale collection: prefer Whale Alert (multi-chain), fall back to Etherscan (ETH-only)
+    if WHALE_ALERT_API_KEY:
+        results["whales"] = WhaleAlertCollector().collect()
+    else:
+        logger.info("[Whales] WHALE_ALERT_API_KEY not set — using Etherscan fallback (ETH only)")
+        results["whales"] = WhaleCollector().collect()
+
     logger.info(f"[Collection] {results}")
     return results
