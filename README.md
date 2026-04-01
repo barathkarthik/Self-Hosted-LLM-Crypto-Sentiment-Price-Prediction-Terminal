@@ -1,218 +1,198 @@
-# 📊 Crypto Trading Intelligence Terminal
+# Crypto Trading Intelligence Terminal
 
-**Self-Hosted LLM-Powered Crypto Sentiment & Price Prediction System**
+**Self-Hosted LLM-Powered Crypto Sentiment and Price Prediction System**
 
-> NMIMS Innovathon 2026 · Challenge 2 · AI & Data Intelligence Track
-
----
-
-## 🎯 Problem
-
-Retail crypto traders lack affordable tools to aggregate sentiment from social media, news, and on-chain data. Professional APIs (Santiment, LumiBot) cost ₹2–5L/month. This terminal runs **100% locally and free** — combining LLM sentiment analysis, time-series prediction, and whale tracking into actionable trading signals.
+NMIMS Innovathon 2026 · Challenge 2 · AI and Data Intelligence Track
 
 ---
 
-## 🏗️ Architecture
+## Overview
+
+Retail crypto traders lack affordable tools to aggregate sentiment from social media, news, and on-chain data. Professional platforms such as Santiment and Nansen cost upwards of Rs. 2–5 lakh per month. This terminal replicates core institutional-grade capabilities — LLM sentiment analysis, time-series price prediction, whale on-chain tracking, and backtested signal generation — running entirely on local hardware at zero cost.
+
+---
+
+## Architecture
 
 ```
-┌────────────────────────────────────────────────────┐
-│                  DATA SOURCES                       │
-│  Reddit API  │ NewsAPI  │ Etherscan  │ Binance     │
-└──────┬───────┴────┬─────┴─────┬──────┴──────┬──────┘
-       └────────────┴───────────┴─────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  Ingestion Pipeline │
-              │  Async + Scheduled  │
-              └──────────┬──────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  SQLite/PostgreSQL   │
-              └──┬─────┬──────┬─────┘
-                 │     │      │
-       ┌─────────▼┐ ┌─▼──────▼──┐ ┌──────────┐
-       │Sentiment │ │  Price     │ │ On-Chain  │
-       │Engine    │ │ Predictor  │ │ Analytics │
-       │Ollama/   │ │ Prophet/   │ │  Whale    │
-       │FinBERT   │ │ XGBoost    │ │ Tracking  │
-       └────┬─────┘ └─────┬─────┘ └────┬──────┘
-            └──────────────┼────────────┘
-                    ┌──────▼──────┐
-                    │   Signal    │
-                    │ Generator   │
-                    │ BUY/SELL/   │
-                    │ HOLD        │
-                    └──┬───────┬──┘
-              ┌────────▼┐  ┌──▼──────────┐
-              │Backtest │  │  Streamlit   │
-              │Engine   │  │  Dashboard   │
-              └─────────┘  └─────────────┘
+Data Sources
+  Telegram Channels  |  NewsAPI  |  Whale Alert  |  Binance REST
+          |
+  Ingestion Pipeline (Async, Scheduled, Retry with Exponential Backoff)
+          |
+  SQLite / PostgreSQL (7 indexed tables via SQLAlchemy ORM)
+     |              |              |
+Sentiment        Price          On-Chain
+Engine           Predictor      Analytics
+Ollama           Prophet +      Whale Alert
+Mistral 7B +     XGBoost        Classification
+FinBERT fallback
+     |              |              |
+          Signal Generator
+          BUY / SELL / HOLD
+          Confidence Score + Reasoning
+               |              |
+         Backtesting      Streamlit
+         Engine           Dashboard
 ```
 
 ---
 
-## 🚀 Quick Start
+## Features
 
-### Prerequisites
-- Python 3.9+
-- 8 GB RAM minimum (16 GB recommended)
-- [Ollama](https://ollama.ai) installed (for local LLM)
+**Multi-Source Sentiment Analysis**
+Text from Telegram crypto channels and NewsAPI is scored using a locally-hosted Mistral 7B model via Ollama. If Ollama is unavailable, FinBERT (CPU-based) is used as a fallback. Every classification includes a confidence score and produces a BULLISH, BEARISH, or NEUTRAL label.
 
-### Setup
+**Price Prediction**
+Facebook Prophet generates 1h, 4h, and 24h directional forecasts using historical OHLCV data. XGBoost produces a secondary prediction using 30 engineered features including technical indicators, sentiment scores, on-chain signals, and microstructure features (volatility regime, return entropy, z-score of 5-bar returns) derived from production-grade research.
+
+**Whale On-Chain Tracking**
+Large transactions are collected via the Whale Alert API, covering Bitcoin, Ethereum, Solana, XRP, Dogecoin, and 20+ additional chains. Transactions are classified as accumulation (exchange outflows) or distribution (exchange inflows) based on wallet owner type.
+
+**Signal Generation**
+Signals are produced by combining three independent indicators: sentiment score, ML prediction direction, and whale flow classification. A BUY or SELL signal requires at least two of three factors to align. Every signal includes a numeric confidence score and a human-readable reasoning string.
+
+**Backtesting Engine**
+Historical signals are replayed against OHLCV data with realistic assumptions: 0.1% slippage per side, 0.1% commission, and confidence-weighted position sizing. Metrics computed include total return, CAGR, Sharpe ratio, Sortino ratio, max drawdown, and a rolling 126-trade Sharpe window.
+
+**Paper Trading**
+A simulated order execution engine places paper trades using live Binance market prices (public API, no authentication required). Slippage and commission are applied at fill. All trades are persisted locally and displayed in a trade history table with P&L tracking.
+
+**Dashboard**
+A six-tab Streamlit terminal displays market overview with candlestick charts and OHLCV data, sentiment intelligence, ML predictions with signal reasoning, whale transaction feed, backtesting results, and the paper trading interface.
+
+---
+
+## Signal Logic
+
+```
+BUY   =  sentiment > 0.70  AND  prediction = UP    AND  whales accumulating   (2 of 3 required)
+SELL  =  sentiment < 0.30  AND  prediction = DOWN  AND  whales distributing   (2 of 3 required)
+HOLD  =  all other conditions
+```
+
+---
+
+## Technology Stack
+
+| Component | Technology |
+|---|---|
+| LLM Sentiment | Ollama (Mistral 7B Q4) + FinBERT fallback |
+| Price Prediction | Facebook Prophet + XGBoost |
+| Feature Engineering | 30 features: technical, sentiment, on-chain, microstructure |
+| Data Collection | Telethon, Requests, Whale Alert API, Binance REST |
+| On-Chain Analytics | Whale Alert API (multi-chain) |
+| Signal Engine | Custom multi-factor rule engine |
+| Backtesting | Custom simulator with slippage and commission modeling |
+| Paper Trading | Local simulation engine with live market prices |
+| Dashboard | Streamlit + Plotly |
+| Database | SQLAlchemy ORM with SQLite (PostgreSQL-compatible) |
+| Resilience | Exponential backoff retry decorator on all API collectors |
+
+---
+
+## Project Structure
+
+```
+Hackathon1/
+├── src/
+│   ├── database.py             SQLAlchemy models (7 tables)
+│   ├── data_loader.py          5 data collectors with retry logic
+│   ├── feature_engineering.py  30 ML features
+│   ├── sentiment_engine.py     Ollama LLM + FinBERT fallback
+│   ├── model.py                Prophet + XGBoost with feature manifest
+│   ├── signal_engine.py        Multi-factor signal generation
+│   ├── backtester.py           Realistic backtesting with risk metrics
+│   ├── paper_trader.py         Local paper trading simulation engine
+│   └── utils.py                Retry decorator (exponential backoff)
+├── scripts/
+│   └── seed_paper_trades.py    Demo trade history generator
+├── models/                     Trained model artifacts (.pkl, .json)
+├── data/                       SQLite database
+├── app.py                      Streamlit dashboard (6 tabs)
+├── main.py                     Pipeline orchestrator with scheduler
+├── config.py                   Centralized configuration and API keys
+└── requirements.txt
+```
+
+---
+
+## Setup
+
+**Prerequisites**
+- Python 3.9 or later
+- Minimum 8 GB RAM (16 GB recommended for local LLM)
+- Ollama installed (for local sentiment analysis)
+
+**Installation**
 
 ```bash
-cd HACKATHON1
-
-# Virtual environment
 python -m venv venv
-source venv/bin/activate        # Linux/Mac
-# venv\Scripts\activate          # Windows
-
-# Dependencies
+venv\Scripts\activate          # Windows
 pip install -r requirements.txt
+```
 
-# API keys
-cp .env.example .env.local
-# Edit .env.local with your Reddit, NewsAPI, Etherscan keys
+**Configuration**
 
-# Pull LLM model (~4 GB)
+Copy `.env.example` to `.env.local` and populate the following keys:
+
+```
+NEWS_API_KEY=
+TELEGRAM_API_ID=
+TELEGRAM_API_HASH=
+WHALE_ALERT_API_KEY=
+```
+
+**LLM Model**
+
+```bash
 ollama pull mistral:7b-instruct-q4_0
+```
 
-# Initialize database
+**Database**
+
+```bash
 python -c "from src.database import init_db; init_db()"
 ```
 
-### Run
+**Run**
 
 ```bash
-# Terminal 1: Start data pipeline + signal engine
+# Terminal 1: data pipeline and signal engine
 python main.py
 
-# Terminal 2: Launch dashboard
-streamlit run app.py
+# Terminal 2: dashboard
+python -m streamlit run app.py
 ```
 
-### Quick flags
+**Flags**
 
 ```bash
-python main.py --skip-history   # Skip 90-day data fetch
-python main.py --train-only     # Just train models, then exit
-```
-
-### Optional: PostgreSQL
-
-```bash
-docker-compose up -d
-# Set DATABASE_URL=postgresql://crypto:crypto@localhost:5432/cryptodb in .env.local
+python main.py --skip-history   # Skip initial 90-day historical data fetch
+python main.py --train-only     # Train models and exit
 ```
 
 ---
 
-## 📁 Project Structure
+## API Keys
 
-```
-HACKATHON1/
-├── src/
-│   ├── __init__.py
-│   ├── database.py            # 7 SQLAlchemy tables + init
-│   ├── data_loader.py         # 4 collectors (Reddit, News, Binance, Etherscan)
-│   ├── feature_engineering.py # 27 ML features (technical + sentiment + on-chain)
-│   ├── sentiment_engine.py    # Ollama LLM + FinBERT fallback
-│   ├── model.py               # Prophet + XGBoost predictors
-│   ├── signal_engine.py       # BUY/SELL signal generation + reasoning
-│   └── backtester.py          # P&L, Sharpe ratio, win rate
-├── data/                      # CSV files + SQLite database
-├── models/                    # Trained model artifacts (.pkl)
-├── tests/
-│   └── test_components.py     # 10 component tests
-├── app.py                     # Streamlit dashboard (5 tabs)
-├── main.py                    # Orchestrator (scheduler + threading)
-├── config.py                  # All settings + API key management
-├── requirements.txt
-├── docker-compose.yml
-├── .env.example
-├── .gitignore
-└── README.md
-```
+All API keys are loaded from `.env.local` and are never committed to version control. Free-tier access is sufficient for all data sources. The Binance integration uses only the public price endpoint and requires no authentication.
 
----
-
-## 🔧 Core Components
-
-| Component | Technology | Purpose |
+| Key | Source | Required |
 |---|---|---|
-| LLM Sentiment | Ollama (Mistral 7B) + FinBERT | Classify text BULLISH/BEARISH/NEUTRAL/FUD |
-| Price Prediction | Facebook Prophet + XGBoost | Predict 1h/4h/24h direction |
-| Data Ingestion | PRAW, Requests | Reddit, NewsAPI, Binance, Etherscan |
-| On-Chain Analytics | Etherscan API | Whale transaction tracking & classification |
-| Signal Generator | Custom rule engine | Combine 3 signals with confidence + reasoning |
-| Backtesting | Custom simulator | Win rate, Sharpe ratio, max drawdown, P&L |
-| Dashboard | Streamlit + Plotly | 5-tab real-time terminal |
-| Database | SQLAlchemy (SQLite/PostgreSQL) | 7 indexed tables |
+| NEWS_API_KEY | newsapi.org | Yes |
+| TELEGRAM_API_ID / HASH | my.telegram.org | Yes |
+| WHALE_ALERT_API_KEY | whale-alert.io | Yes |
+| ETHERSCAN_API_KEY | etherscan.io | No (superseded by Whale Alert) |
 
 ---
 
-## 📊 Signal Logic
+## Disclaimer
 
-```
-BUY  = (sentiment > 0.7) + (prediction = UP) + (whales accumulating)   → ≥2 of 3
-SELL = (sentiment < 0.3) + (prediction = DOWN) + (whales distributing) → ≥2 of 3
-HOLD = all other conditions
-```
-
-Every signal includes:
-- Confidence score (0–1)
-- Human-readable reasoning explaining WHY it was generated
-- Breakdown of sentiment, prediction, and whale components
+This system is built for educational and research purposes as part of an academic hackathon. It does not constitute financial advice. No real money is traded at any point. All trading signals, backtesting results, and paper trades are simulations and should not be used to make real investment decisions.
 
 ---
 
-## 📈 Model Performance
+## Event
 
-| Metric | Target | Measurement |
-|---|---|---|
-| Directional Accuracy | >55% | Prophet on 3-month history |
-| Sentiment Classification | ~70–75% | Few-shot prompted Mistral 7B |
-| Backtest Win Rate | >50% | Evaluated on 30-day signal history |
-| Sharpe Ratio | >0 | Risk-adjusted returns |
-
----
-
-## 🔑 Feature Highlights
-
-1. **Self-hosted LLM** — Ollama runs Mistral 7B locally, no cloud dependency
-2. **Automatic fallback** — If Ollama fails, FinBERT (CPU) takes over seamlessly
-3. **27 engineered features** — Technical indicators + sentiment + on-chain combined
-4. **Real-time pipeline** — 6 scheduled collectors running in parallel threads
-5. **Explainable signals** — Every BUY/SELL includes reasoning, not just a number
-6. **5-coin coverage** — BTC, ETH, SOL, XRP, DOGE tracked simultaneously
-7. **Full backtesting** — Historical P&L, Sharpe ratio, max drawdown
-8. **Zero cost** — All free-tier APIs, open-source models, no paid dependencies
-
----
-
-## ⚠️ Important Notices
-
-- **Educational Use Only** — Simulation tool. NO real money trading.
-- **API Keys** — Never commit to GitHub. Use `.env.local` only.
-- **All Free Tier** — Total cost: ₹0.
-
----
-
-## 🧪 Run Tests
-
-```bash
-python tests/test_components.py
-# or
-python -m pytest tests/ -v
-```
-
----
-
-## 👥 Team
-
-NMIMS Innovathon 2026 — AI & Data Intelligence Track
-
----
-
-*Built with Ollama, Prophet, Streamlit, FinBERT, and open-source tools.*
+NMIMS Innovathon 2026 — AI and Data Intelligence Track
