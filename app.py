@@ -264,6 +264,24 @@ div[data-testid="stVerticalBlock"] > div { gap: 0.4rem; }
   background: #0d1117 !important; border-color: #30363d !important;
   font-size: 0.75rem !important;
 }
+
+/* ── Signal pill badges ── */
+.pill-buy  { background:#0d3d22; color:#3fb950; padding:2px 8px; border-radius:3px; font-size:11px; font-family:'JetBrains Mono',monospace; font-weight:700; letter-spacing:0.5px; border:1px solid #1a5c32; }
+.pill-sell { background:#3d0d0d; color:#f85149; padding:2px 8px; border-radius:3px; font-size:11px; font-family:'JetBrains Mono',monospace; font-weight:700; letter-spacing:0.5px; border:1px solid #5c1a1a; }
+.pill-hold { background:#1a1a0d; color:#e3b341; padding:2px 8px; border-radius:3px; font-size:11px; font-family:'JetBrains Mono',monospace; font-weight:700; letter-spacing:0.5px; border:1px solid #5c4a1a; }
+
+/* ── Terminal comparison table ── */
+.term-table { width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:12px; }
+.term-table th { color:#4fc3f7; border-bottom:1px solid #1e3a5f; padding:7px 10px; text-align:left; font-size:10px; letter-spacing:1.2px; text-transform:uppercase; background:#070b14; }
+.term-table td { padding:6px 10px; border-bottom:1px solid #0d1b2a; color:#cfd8dc; }
+.term-table tr:hover td { background:#0d1b2a; }
+.score-bull { color:#3fb950; font-weight:700; }
+.score-bear { color:#f85149; font-weight:700; }
+.score-neut { color:#e3b341; font-weight:700; }
+
+/* ── Fear & Greed gauge bar ── */
+.fg-bar-wrap { background:#161b22; height:10px; border-radius:3px; margin:4px 0 2px; overflow:hidden; }
+.fg-bar-fill { height:10px; border-radius:3px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -397,6 +415,17 @@ def get_stats():
     session.close()
     return s
 
+@st.cache_data(ttl=120)
+def get_fear_greed():
+    session = get_session()
+    row = session.query(SentimentSnapshot).filter(
+        SentimentSnapshot.source == "fear_greed"
+    ).order_by(SentimentSnapshot.timestamp.desc()).first()
+    session.close()
+    if row:
+        return {"score": row.avg_score, "label": row.label, "time": row.timestamp}
+    return None
+
 
 # ═══════════════════════════════════════════════════════════════
 #  SIDEBAR
@@ -481,27 +510,27 @@ stats = get_stats()
 st.markdown(f"""
 <div class="stats-bar">
   <div class="stats-cell">
-    <span class="stats-icon">📰</span>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[N]</span>
     <div><div class="stats-label">News (24h)</div><div class="stats-val">{stats['news']}</div></div>
   </div>
   <div class="stats-cell">
-    <span class="stats-icon">💬</span>
-    <div><div class="stats-label">Reddit (24h)</div><div class="stats-val">{stats['reddit']}</div></div>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[TG]</span>
+    <div><div class="stats-label">Telegram (24h)</div><div class="stats-val">{stats['reddit']}</div></div>
   </div>
   <div class="stats-cell">
-    <span class="stats-icon">⚡</span>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[SIG]</span>
     <div><div class="stats-label">Signals (24h)</div><div class="stats-val">{stats['signals']}</div></div>
   </div>
   <div class="stats-cell">
-    <span class="stats-icon">🐋</span>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[W]</span>
     <div><div class="stats-label">Whale Txns</div><div class="stats-val">{stats['whales']}</div></div>
   </div>
   <div class="stats-cell">
-    <span class="stats-icon">📊</span>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[C]</span>
     <div><div class="stats-label">Candles</div><div class="stats-val">{stats['candles']}</div></div>
   </div>
   <div class="stats-cell">
-    <span class="stats-icon">🕐</span>
+    <span class="stats-icon" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#484f58;">[T]</span>
     <div><div class="stats-label">Window</div><div class="stats-val">{time_window}</div></div>
   </div>
 </div>
@@ -744,8 +773,8 @@ with tab1:
         else:
             st.markdown("""
             <div style="height:400px;display:flex;align-items:center;justify-content:center;
-                 background:#0d1117;border:1px solid #161b22;border-radius:6px;color:#484f58;font-size:0.8rem;">
-              No price data — run <code style="color:#8b949e;">python main.py</code> to start collection
+                 background:#0d1117;border:1px solid #161b22;border-radius:6px;color:#484f58;font-size:0.75rem;font-family:'JetBrains Mono',monospace;letter-spacing:1px;">
+              -- NO DATA -- [ START PIPELINE: python main.py --skip-history ]
             </div>""", unsafe_allow_html=True)
 
     # ── Right: Signal + Sentiment ──
@@ -827,8 +856,8 @@ with tab2:
                   </div>
                 </div>""", unsafe_allow_html=True)
 
-            # Heatmap
-            st.markdown('<div class="sec-label" style="margin-top:0.75rem;">Heatmap</div>', unsafe_allow_html=True)
+            # Heatmap — full height
+            st.markdown('<div class="sec-label" style="margin-top:0.75rem;">Sentiment Heatmap</div>', unsafe_allow_html=True)
             fig_h = go.Figure(go.Heatmap(
                 z=[latest_s["score"].tolist()],
                 x=latest_s["coin"].tolist(), y=["Score"],
@@ -837,18 +866,43 @@ with tab2:
                 zmin=0, zmax=1,
                 text=[[f"{s:.2f}" for s in latest_s["score"]]],
                 texttemplate="%{text}",
-                textfont=dict(size=14, family="JetBrains Mono", color="white"),
-                showscale=False,
+                textfont=dict(size=15, family="JetBrains Mono", color="white"),
+                showscale=True,
+                colorbar=dict(
+                    thickness=10, len=0.8,
+                    tickfont=dict(size=9, color="#484f58", family="JetBrains Mono"),
+                    outlinecolor="#161b22", outlinewidth=1,
+                ),
             ))
             fig_h.update_layout(
-                height=80, margin=dict(l=0, r=0, t=0, b=0),
+                height=160, margin=dict(l=0, r=0, t=0, b=0),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(color="#8b949e", tickfont=dict(size=10, family="JetBrains Mono")),
+                xaxis=dict(color="#8b949e", tickfont=dict(size=11, family="JetBrains Mono", color="#c9d1d9")),
                 yaxis=dict(color="#8b949e", showticklabels=False),
             )
             st.plotly_chart(fig_h, use_container_width=True, config={"displayModeBar": False})
+
+            # Fear & Greed gauge
+            fg = get_fear_greed()
+            if fg:
+                fg_pct = int(fg["score"] * 100)
+                fg_color = "#f85149" if fg_pct < 25 else "#e3b341" if fg_pct < 45 else "#3fb950" if fg_pct >= 55 else "#8b949e"
+                fg_label = {"BEARISH": "FEAR", "BULLISH": "GREED", "NEUTRAL": "NEUTRAL"}.get(fg["label"], fg["label"])
+                st.markdown(f"""
+                <div style="margin-top:0.6rem;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                    <span style="font-size:0.6rem;color:#484f58;letter-spacing:1px;font-weight:600;text-transform:uppercase;">Fear &amp; Greed Index</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:700;color:{fg_color};">{fg_pct}/100 — {fg_label}</span>
+                  </div>
+                  <div class="fg-bar-wrap">
+                    <div class="fg-bar-fill" style="width:{fg_pct}%;background:linear-gradient(90deg,#f85149,#e3b341 45%,#3fb950);"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:0.55rem;color:#30363d;font-family:'JetBrains Mono',monospace;">
+                    <span>EXTREME FEAR</span><span>NEUTRAL</span><span>EXTREME GREED</span>
+                  </div>
+                </div>""", unsafe_allow_html=True)
         else:
-            st.info("No sentiment data. Run main.py.")
+            st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:0.5rem 0;">-- NO DATA -- [ START PIPELINE: python main.py --skip-history ]</div>', unsafe_allow_html=True)
 
     with c_trend:
         st.markdown('<div class="sec-label">Sentiment Trend Over Time</div>', unsafe_allow_html=True)
@@ -888,25 +942,43 @@ with tab2:
         else:
             st.markdown('<div style="height:360px;display:flex;align-items:center;justify-content:center;background:#070b14;border:1px solid #161b22;border-radius:4px;color:#484f58;font-size:0.8rem;">No sentiment data yet.</div>', unsafe_allow_html=True)
 
-        # Latest news table
+        # Latest news — styled HTML table
         st.markdown('<div class="sec-label" style="margin-top:0.65rem;">Recent News with Sentiment</div>', unsafe_allow_html=True)
         if selected_coins:
-            all_news = []
+            all_news_rows = []
             for c in selected_coins:
                 for n in get_news(c, limit=4):
-                    all_news.append({
-                        "Coin": c,
-                        "Published": n.published_at.strftime("%m/%d %H:%M") if n.published_at else "—",
-                        "Source": (n.source or "—")[:15],
-                        "Headline": (n.title or "")[:80],
-                        "Sentiment": n.sentiment_label or "—",
-                        "Score": f"{n.sentiment_score:.2f}" if n.sentiment_score else "—",
-                    })
-            if all_news:
-                st.dataframe(pd.DataFrame(all_news), use_container_width=True,
-                             hide_index=True, height=200)
+                    all_news_rows.append((
+                        c,
+                        n.published_at.strftime("%m/%d %H:%M") if n.published_at else "—",
+                        (n.source or "—")[:15],
+                        (n.title or "")[:85],
+                        n.sentiment_label or "—",
+                        f"{n.sentiment_score:.2f}" if n.sentiment_score else "—",
+                    ))
+            if all_news_rows:
+                rows_html = ""
+                for coin, pub, src, title, sent_lbl, score in all_news_rows:
+                    sc = "score-bull" if sent_lbl == "BULLISH" else "score-bear" if sent_lbl == "BEARISH" else ""
+                    rows_html += f"""<tr>
+                      <td style="color:#8b949e;font-size:10px;">{coin}</td>
+                      <td style="color:#484f58;font-size:10px;white-space:nowrap;">{pub}</td>
+                      <td style="color:#484f58;font-size:10px;">{src}</td>
+                      <td style="color:#c9d1d9;">{title}</td>
+                      <td class="{sc}" style="white-space:nowrap;">{sent_lbl}</td>
+                      <td style="text-align:right;">{score}</td>
+                    </tr>"""
+                st.markdown(f"""
+                <div style="max-height:220px;overflow-y:auto;">
+                <table class="term-table">
+                  <thead><tr>
+                    <th>Coin</th><th>Time</th><th>Source</th>
+                    <th>Headline</th><th>Sentiment</th><th>Score</th>
+                  </tr></thead>
+                  <tbody>{rows_html}</tbody>
+                </table></div>""", unsafe_allow_html=True)
             else:
-                st.markdown('<div style="font-size:0.7rem;color:#484f58;">No news articles scored yet.</div>', unsafe_allow_html=True)
+                st.markdown('<div style="font-size:0.7rem;color:#484f58;">-- NO DATA -- [ START PIPELINE: python main.py --skip-history ]</div>', unsafe_allow_html=True)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -914,74 +986,89 @@ with tab2:
 # ────────────────────────────────────────────────────────────────
 with tab3:
     sigs = get_signals(selected_coins)
-    st.markdown('<div class="sec-label">4-Hour Directional Predictions</div>', unsafe_allow_html=True)
-    cols = st.columns(len(selected_coins) if selected_coins else 1, gap="small")
-    for i, coin in enumerate(selected_coins):
-        with cols[i]:
-            sig = sigs.get(coin, {})
-            pred = sig.get("prediction", "—") or "—"
-            pc   = sig.get("pred_conf") or 0
-            sent = sig.get("sentiment") or 0.5
+
+    # ── Comparison grid table ──────────────────────────────────
+    st.markdown('<div class="sec-label">Prediction Summary — All Tracked Coins</div>', unsafe_allow_html=True)
+    if selected_coins:
+        rows_html = ""
+        for coin in selected_coins:
+            sig   = sigs.get(coin, {})
+            pred  = sig.get("prediction", "—") or "—"
+            pc    = sig.get("pred_conf") or 0
+            sent  = sig.get("sentiment") or 0.5
             whale = sig.get("whale") or "—"
             stype = sig.get("type", "N/A")
+            price = live_prices.get(coin)
 
-            pred_color = "#3fb950" if pred == "UP" else "#f85149" if pred == "DOWN" else "#e3b341"
-            sig_color  = {"BUY": "#3fb950", "SELL": "#f85149", "HOLD": "#e3b341"}.get(stype, "#484f58")
+            pred_arrow = "▲" if pred == "UP" else "▼" if pred == "DOWN" else "—"
+            pred_cls   = "score-bull" if pred == "UP" else "score-bear" if pred == "DOWN" else "score-neut"
+            sent_cls   = "score-bull" if sent > 0.6 else "score-bear" if sent < 0.4 else "score-neut"
+            sig_cls    = "score-bull" if stype == "BUY" else "score-bear" if stype == "SELL" else "score-neut"
+            whale_cls  = "score-bull" if whale == "ACCUMULATION" else "score-bear" if whale == "DISTRIBUTION" else ""
 
-            st.markdown(f"""
-            <div class="data-card" style="text-align:center;padding:1rem;">
-              <div style="font-size:0.6rem;color:#484f58;letter-spacing:2px;font-weight:600;">{coin}/USDT</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:700;color:{pred_color};margin:0.35rem 0;">
-                {'▲' if pred=='UP' else '▼' if pred=='DOWN' else '—'} {pred}
-              </div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#8b949e;">{pc:.0%} confidence</div>
-              <div style="display:flex;justify-content:space-between;margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid #161b22;">
-                <span style="font-size:0.62rem;color:#484f58;">Signal</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:{sig_color};font-weight:700;">{stype}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding-top:0.3rem;">
-                <span style="font-size:0.62rem;color:#484f58;">Sentiment</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#8b949e;">{sent:.2f}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding-top:0.3rem;">
-                <span style="font-size:0.62rem;color:#484f58;">Whales</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#8b949e;">{whale}</span>
-              </div>
-            </div>""", unsafe_allow_html=True)
+            rows_html += f"""<tr>
+              <td style="font-weight:700;color:#f0f6fc;letter-spacing:1px;">{coin}</td>
+              <td style="font-family:'JetBrains Mono',monospace;">{fmt_price(price) if price else "—"}</td>
+              <td class="{pred_cls}">{pred_arrow} {pred}</td>
+              <td style="font-family:'JetBrains Mono',monospace;">{pc:.0%}</td>
+              <td class="{sent_cls}">{sent:.3f}</td>
+              <td class="{whale_cls}">{whale}</td>
+              <td class="{sig_cls}">{stype}</td>
+            </tr>"""
 
-            pdf = get_prices(coin, hours)
-            if not pdf.empty:
-                fig_p = go.Figure()
-                fig_p.add_trace(go.Scatter(
-                    x=pdf["timestamp"], y=pdf["close"], mode="lines",
-                    line=dict(color=pred_color, width=1.5),
-                    fill="tozeroy", fillcolor=f"rgba({'63,185,80' if pred=='UP' else '248,81,73' if pred=='DOWN' else '227,179,65'},0.05)",
-                    name="Price"
-                ))
-                fig_p.add_trace(go.Scatter(
-                    x=pdf["timestamp"], y=pdf["close"].rolling(25).mean(),
-                    mode="lines", line=dict(color="#58a6ff", width=1, dash="dot"), name="SMA25"
-                ))
-                fig_p.update_layout(
-                    height=160, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=4, b=0), showlegend=False,
-                    xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-                    yaxis=dict(gridcolor="#161b22", tickfont=dict(size=8, family="JetBrains Mono"),
-                               color="#484f58", zeroline=False, side="right"),
-                )
-                st.plotly_chart(fig_p, use_container_width=True, config={"displayModeBar": False})
+        st.markdown(f"""
+        <table class="term-table">
+          <thead><tr>
+            <th>Coin</th><th>Price (USDT)</th><th>Direction</th>
+            <th>ML Confidence</th><th>Sentiment Score</th><th>Whale Activity</th><th>Signal</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>""", unsafe_allow_html=True)
 
-            if sig.get("reasoning"):
-                with st.expander("Signal Reasoning", expanded=False):
-                    st.markdown(f'<div class="reason-block">{sig["reasoning"]}</div>', unsafe_allow_html=True)
+    # ── Chart + Reasoning for selected coin ────────────────────
+    st.markdown('<div class="sec-label" style="margin-top:0.9rem;">Detail View</div>', unsafe_allow_html=True)
+    pred_detail_coin = st.selectbox(
+        "Select coin for chart", selected_coins or list(COINS.keys()),
+        key="pred_detail_coin", label_visibility="collapsed"
+    )
+    sig_d     = sigs.get(pred_detail_coin, {})
+    pred_d    = sig_d.get("prediction", "—") or "—"
+    pred_col  = "#3fb950" if pred_d == "UP" else "#f85149" if pred_d == "DOWN" else "#e3b341"
+    pdf_d = get_prices(pred_detail_coin, hours)
+    if not pdf_d.empty:
+        fig_pd = go.Figure()
+        fig_pd.add_trace(go.Scatter(
+            x=pdf_d["timestamp"], y=pdf_d["close"], mode="lines",
+            line=dict(color=pred_col, width=1.5),
+            fill="tozeroy",
+            fillcolor=f"rgba({'63,185,80' if pred_d=='UP' else '248,81,73' if pred_d=='DOWN' else '227,179,65'},0.05)",
+            name="Price"
+        ))
+        fig_pd.add_trace(go.Scatter(
+            x=pdf_d["timestamp"], y=pdf_d["close"].rolling(25).mean(),
+            mode="lines", line=dict(color="#58a6ff", width=1, dash="dot"), name="SMA25"
+        ))
+        fig_pd.update_layout(
+            height=240, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=4, b=0), showlegend=False,
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(gridcolor="#161b22", tickfont=dict(size=8, family="JetBrains Mono"),
+                       color="#484f58", zeroline=False, side="right"),
+        )
+        st.plotly_chart(fig_pd, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.markdown('<div style="height:180px;display:flex;align-items:center;justify-content:center;background:#0d1117;border:1px solid #161b22;border-radius:4px;color:#484f58;font-size:0.75rem;">-- NO DATA -- [ START PIPELINE: python main.py --skip-history ]</div>', unsafe_allow_html=True)
 
-    # Full signal log table
+    if sig_d.get("reasoning"):
+        st.markdown(f'<div class="reason-block" style="margin-top:0.4rem;">{sig_d["reasoning"]}</div>', unsafe_allow_html=True)
+
+    # ── Full signal log ─────────────────────────────────────────
     st.markdown('<div class="sec-label" style="margin-top:0.75rem;">Full Signal History</div>', unsafe_allow_html=True)
     log = get_signal_log(100)
     if not log.empty:
         st.dataframe(log, use_container_width=True, hide_index=True, height=280)
     else:
-        st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:0.5rem;">No signal history yet. Run main.py.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.7rem;color:#484f58;padding:0.5rem;">-- NO DATA -- [ START PIPELINE: python main.py --skip-history ]</div>', unsafe_allow_html=True)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1149,10 +1236,10 @@ with tab5:
         else:
             st.markdown("""
             <div style="height:400px;display:flex;align-items:center;justify-content:center;
-                 flex-direction:column;gap:0.75rem;color:#484f58;">
-              <div style="font-size:2rem;opacity:0.3;">📉</div>
-              <div style="font-size:0.8rem;">Configure parameters and click <strong style="color:#8b949e;">RUN BACKTEST</strong></div>
-              <div style="font-size:0.68rem;color:#30363d;">Requires signal history in database</div>
+                 flex-direction:column;gap:0.6rem;color:#484f58;background:#0d1117;border:1px solid #161b22;border-radius:6px;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;color:#30363d;letter-spacing:4px;">[ BACKTEST ]</div>
+              <div style="font-size:0.78rem;">Configure parameters and click <strong style="color:#8b949e;">RUN BACKTEST</strong></div>
+              <div style="font-size:0.65rem;color:#30363d;font-family:'JetBrains Mono',monospace;">Requires signal history in database</div>
             </div>""", unsafe_allow_html=True)
 
 
