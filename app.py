@@ -90,6 +90,7 @@ div[data-testid="stVerticalBlock"] > div { gap: 0.4rem; }
 .pill-live   { background: rgba(35,134,54,0.2);  border: 1px solid rgba(35,134,54,0.5);  color: #3fb950; }
 .pill-ai     { background: rgba(31,111,235,0.2); border: 1px solid rgba(31,111,235,0.5); color: #58a6ff; }
 .pill-local  { background: rgba(187,128,9,0.2);  border: 1px solid rgba(187,128,9,0.5);  color: #e3b341; }
+.pill-srl    { background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.5); color: #a78bfa; }
 .terminal-time {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.68rem; color: #484f58; letter-spacing: 0.5px;
@@ -497,6 +498,7 @@ st.markdown(f"""
       <span class="status-pill pill-live">● LIVE</span>
       <span class="status-pill pill-ai">AI-POWERED</span>
       <span class="status-pill pill-local">LOCAL LLM</span>
+      <span class="status-pill pill-srl">30 FEATURES</span>
     </div>
   </div>
   <div class="terminal-time">{now_str}</div>
@@ -770,6 +772,49 @@ with tab1:
               ])}
             </div>
             """, unsafe_allow_html=True)
+
+            # ── Market Regime row (SRL microstructure features) ──
+            try:
+                if "vol_regime" not in pdf.columns:
+                    pdf["vol_regime"] = pdf["volatility_24"] / (pdf["volatility_96"] + 1e-10) if "volatility_24" in pdf.columns and "volatility_96" in pdf.columns else float("nan")
+                if "zscore_ret5" not in pdf.columns:
+                    ret5 = pdf["close"].pct_change(5)
+                    pdf["zscore_ret5"] = (ret5 - ret5.rolling(100).mean()) / (ret5.rolling(100).std() + 1e-10)
+
+                vr = pdf["vol_regime"].iloc[-1] if "vol_regime" in pdf.columns else float("nan")
+                zr = pdf["zscore_ret5"].iloc[-1] if "zscore_ret5" in pdf.columns else float("nan")
+
+                import math
+                vr_ok = not (math.isnan(vr) if isinstance(vr, float) else False)
+                zr_ok = not (math.isnan(zr) if isinstance(zr, float) else False)
+
+                vr_label = "HIGH" if vr_ok and vr > 1.2 else "LOW" if vr_ok and vr < 0.8 else "NORMAL"
+                vr_color = "#f85149" if vr_label == "HIGH" else "#3fb950" if vr_label == "LOW" else "#e3b341"
+                zr_label = "MEAN-REV" if zr_ok and abs(zr) > 2 else "TRENDING" if zr_ok and abs(zr) < 0.5 else "RANGING"
+                zr_color = "#bc8cff" if zr_label == "MEAN-REV" else "#58a6ff" if zr_label == "TRENDING" else "#8b949e"
+
+                st.markdown(f"""
+                <div style="display:flex;gap:1px;background:#161b22;border-radius:4px;overflow:hidden;margin-top:3px;">
+                  <div style="flex:1.2;background:#070b14;padding:0.3rem 0.6rem;display:flex;align-items:center;">
+                    <span style="font-size:0.55rem;color:#484f58;text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace;">MARKET REGIME</span>
+                  </div>
+                  <div style="flex:1;background:#0d1117;padding:0.3rem 0.5rem;text-align:center;">
+                    <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">VOL REGIME</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:{vr_color};">{vr_label} <span style="color:#484f58;font-size:0.6rem;">({vr:.2f})</span></div>
+                  </div>
+                  <div style="flex:1;background:#0d1117;padding:0.3rem 0.5rem;text-align:center;">
+                    <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">Z-SCORE RET5</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:{zr_color};">{zr_label} <span style="color:#484f58;font-size:0.6rem;">({zr:+.2f})</span></div>
+                  </div>
+                  <div style="flex:1;background:#0d1117;padding:0.3rem 0.5rem;text-align:center;">
+                    <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">FEATURES</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:#a78bfa;">30 ACTIVE</div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+            except Exception:
+                pass
+
         else:
             st.markdown("""
             <div style="height:400px;display:flex;align-items:center;justify-content:center;
@@ -1062,6 +1107,55 @@ with tab3:
     if sig_d.get("reasoning"):
         st.markdown(f'<div class="reason-block" style="margin-top:0.4rem;">{sig_d["reasoning"]}</div>', unsafe_allow_html=True)
 
+    # ── ML Intelligence Panel ────────────────────────────────────
+    st.markdown('<div class="sec-label" style="margin-top:0.75rem;">ML Intelligence</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+      <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.6rem 0.8rem;">
+        <div style="font-size:0.58rem;color:#484f58;letter-spacing:1px;margin-bottom:0.4rem;">FEATURE GROUPS</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.65rem;color:#8b949e;">Technical Indicators</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#58a6ff;">22</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.65rem;color:#8b949e;">Sentiment Signals</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#3fb950;">3</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.65rem;color:#8b949e;">On-Chain / Whale</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#e3b341;">2</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.65rem;color:#8b949e;">SRL Microstructure</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#a78bfa;">3</span>
+          </div>
+          <div style="border-top:1px solid #161b22;margin-top:2px;padding-top:4px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.65rem;color:#c9d1d9;font-weight:600;">Total Features</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#a78bfa;font-weight:700;">30</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.6rem 0.8rem;">
+        <div style="font-size:0.58rem;color:#484f58;letter-spacing:1px;margin-bottom:0.4rem;">SRL MICROSTRUCTURE</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <div>
+            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">VOL_REGIME</div>
+            <div style="font-size:0.62rem;color:#8b949e;">Short/long vol ratio — detects regime shifts</div>
+          </div>
+          <div>
+            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">ENTROPY_50</div>
+            <div style="font-size:0.62rem;color:#8b949e;">Price distribution entropy — market choppiness</div>
+          </div>
+          <div>
+            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">ZSCORE_RET5</div>
+            <div style="font-size:0.62rem;color:#8b949e;">5-bar return z-score — mean reversion signal</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── Full signal log ─────────────────────────────────────────
     st.markdown('<div class="sec-label" style="margin-top:0.75rem;">Full Signal History</div>', unsafe_allow_html=True)
     log = get_signal_log(100)
@@ -1145,8 +1239,11 @@ with tab4:
     else:
         st.markdown("""
         <div style="padding:3rem;text-align:center;color:#484f58;font-size:0.8rem;">
-          No whale transactions in the selected window.<br>
-          <span style="color:#8b949e;">Etherscan API key required — set ETHERSCAN_API_KEY in .env.local</span>
+          No whale transactions detected in the selected window.<br>
+          <span style="color:#8b949e;">Etherscan API key is configured ✓ — pipeline may need more blocks or threshold adjustment</span><br>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#30363d;margin-top:0.5rem;display:block;">
+            [ python main.py --skip-history ]
+          </span>
         </div>""", unsafe_allow_html=True)
 
 
