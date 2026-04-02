@@ -458,6 +458,25 @@ with st.sidebar:
     auto_refresh = st.selectbox("Auto-refresh", [30, 60, 120, 0], index=1,
                                  format_func=lambda x: f"Every {x}s" if x else "Manual",
                                  label_visibility="collapsed")
+    if st.button("REFRESH NOW", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+    # Pipeline status
+    try:
+        _sess = get_session()
+        _latest = _sess.query(Signal).order_by(Signal.timestamp.desc()).first()
+        _sess.close()
+        if _latest:
+            _age = (datetime.now() - _latest.timestamp).total_seconds() / 60
+            if _age > 10:
+                st.markdown(f'<div style="font-size:0.62rem;color:#e3b341;font-family:\'JetBrains Mono\',monospace;padding:2px 0;">Pipeline idle {_age:.0f}m — run python main.py</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="font-size:0.62rem;color:#3fb950;font-family:\'JetBrains Mono\',monospace;padding:2px 0;">Pipeline active ({_age:.0f}m ago)</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="font-size:0.62rem;color:#f85149;font-family:\'JetBrains Mono\',monospace;padding:2px 0;">No signals — run python main.py</div>', unsafe_allow_html=True)
+    except Exception:
+        pass
 
     st.markdown('<div class="sec-label" style="margin-top:0.75rem;">Sentiment Test</div>', unsafe_allow_html=True)
     test_text = st.text_area("Sentiment Input", "Bitcoin bulls push for new highs as institutional demand rises",
@@ -852,6 +871,7 @@ with tab1:
               <div class="sp-row"><span class="sp-key">ML Direction</span><span class="sp-val" style="color:{'#3fb950' if pred=='UP' else '#f85149' if pred=='DOWN' else '#8b949e'};">{pred}</span></div>
               <div class="sp-row"><span class="sp-key">Whale Activity</span><span class="sp-val">{whale}</span></div>
               <div class="sp-row"><span class="sp-key">Pred Confidence</span><span class="sp-val">{pred_conf:.0%}</span></div>
+              <div class="sp-row"><span class="sp-key">Updated</span><span class="sp-val" style="color:#484f58;font-size:0.6rem;">{sig.get('time').strftime('%H:%M:%S') if sig.get('time') else '—'}</span></div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1514,4 +1534,5 @@ with tab6:
 if auto_refresh and auto_refresh > 0:
     import time as _t
     _t.sleep(auto_refresh)
+    st.cache_data.clear()
     st.rerun()
