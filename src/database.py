@@ -118,26 +118,40 @@ class PredictionLog(Base):
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
-    id            = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp     = Column(DateTime, default=datetime.datetime.now)
-    coin          = Column(String(10), nullable=False)
-    symbol        = Column(String(20))
-    side          = Column(String(10))          # BUY / SELL
-    quantity      = Column(Float)
-    entry_price   = Column(Float)
-    exit_price    = Column(Float, nullable=True) # filled when closed
-    notional_usd  = Column(Float)
-    pnl_usd       = Column(Float, nullable=True)
-    pnl_pct       = Column(Float, nullable=True)
-    confidence    = Column(Float)
-    signal_source = Column(String(30), default="MANUAL")  # MANUAL / AUTO
-    status        = Column(String(20), default="OPEN")    # OPEN / CLOSED
-    order_id      = Column(String(50), nullable=True)
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp       = Column(DateTime, default=datetime.datetime.now)
+    coin            = Column(String(10), nullable=False)
+    symbol          = Column(String(20))
+    side            = Column(String(10))           # BUY / SELL
+    quantity        = Column(Float)
+    entry_price     = Column(Float)
+    exit_price      = Column(Float, nullable=True) # filled when closed
+    notional_usd    = Column(Float)
+    pnl_usd         = Column(Float, nullable=True)
+    pnl_pct         = Column(Float, nullable=True)
+    confidence      = Column(Float)
+    signal_source   = Column(String(30), default="MANUAL")  # MANUAL / AUTO
+    status          = Column(String(20), default="OPEN")    # OPEN / CLOSED
+    order_id        = Column(String(50), nullable=True)
+    prediction      = Column(String(20), nullable=True)  # XGBoost: UP / DOWN / SIDEWAYS
+    pred_confidence = Column(Float,      nullable=True)  # XGBoost probability at entry
+    lstm_prediction      = Column(String(20), nullable=True)  # LSTM: UP / DOWN / SIDEWAYS
+    lstm_pred_confidence = Column(Float,      nullable=True)  # LSTM probability at entry
     __table_args__ = (Index("idx_papertrade_coin_time", "coin", "timestamp"),)
 
 
 def init_db():
     Base.metadata.create_all(engine)
+    # Migrate existing DBs: add prediction columns if missing
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        for col, typedef in [("prediction", "VARCHAR(20)"), ("pred_confidence", "FLOAT"),
+                              ("lstm_prediction", "VARCHAR(20)"), ("lstm_pred_confidence", "FLOAT")]:
+            try:
+                conn.execute(text(f"ALTER TABLE paper_trades ADD COLUMN {col} {typedef}"))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
 
 def get_session():
     return SessionLocal()

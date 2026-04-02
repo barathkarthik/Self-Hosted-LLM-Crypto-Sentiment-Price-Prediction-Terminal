@@ -1,0 +1,107 @@
+{
+  "BTC_prophet": {
+    "coin": "BTC",
+    "model": "prophet",
+    "accuracy": 0.4997,
+    "variance": 0.0,
+    "trained_at": "2026-04-02T10:17:13.421971+00:00"
+  },
+  "BTC_xgboost": {
+    "coin": "BTC",
+    "model": "xgboost",
+    "accuracy": 0.605,
+    "variance": 0.009,
+    "trained_at": "2026-04-02T10:17:15.830603+00:00"
+  },
+  "ETH_prophet": {
+    "coin": "ETH",
+    "model": "prophet",
+    "accuracy": 0.5037,
+    "variance": 0.0,
+    "trained_at": "2026-04-02T10:17:49.948222+00:00"
+  },
+  "ETH_xgboost": {
+    "coin": "ETH",
+    "model": "xgboost",
+    "accuracy": 0.5645,
+    "variance": 0.0001,
+    "trained_at": "2026-04-02T10:17:52.385401+00:00"
+  },
+  "SOL_prophet": {
+    "coin": "SOL",
+    "model": "prophet",
+    "accuracy": 0.4845,
+    "variance": 0.0,
+    "trained_at": "2026-04-02T10:18:21.337920+00:00"
+  },
+  "SOL_xgboost": {
+    "coin": "SOL",
+    "model": "xgboost",
+    "accuracy": 0.6621,
+    "variance": 0.0067,
+    "trained_at": "2026-04-02T10:18:23.824145+00:00"
+  },
+  "XRP_prophet": {
+    "coin": "XRP",
+    "model": "prophet",
+    "accuracy": 0.4946,
+    "variance": 0.0,
+    "trained_at": "2026-04-02T10:18:45.586187+00:00"
+  },
+  "XRP_xgboost": {
+    "coin": "XRP",
+    "model": "xgboost",
+    "accuracy": 0.6752,
+    "variance": 0.002,
+    "trained_at": "2026-04-02T10:18:48.003820+00:00"
+  },
+  "DOGE_prophet": {
+    "coin": "DOGE",
+    "model": "prophet",
+    "accuracy": 0.485,
+    "variance": 0.0,
+    "trained_at": "2026-04-02T10:19:15.695324+00:00"
+  },
+  "DOGE_xgboost": {
+    "coin": "DOGE",
+    "model": "xgboost",
+    "accuracy": 0.5811,
+    "variance": 0.0054,
+    "trained_at": "2026-04-02T10:19:18.068617+00:00"
+  },
+  "BTC_lstm": {
+    "coin": "BTC",
+    "model": "lstm",
+    "accuracy": 0.5721,
+    "variance": 0.0158,
+    "trained_at": "2026-04-02T10:17:47.048467+00:00"
+  },
+  "ETH_lstm": {
+    "coin": "ETH",
+    "model": "lstm",
+    "accuracy": 0.6201,
+    "variance": 0.0292,
+    "trained_at": "2026-04-02T10:18:18.198376+00:00"
+  },
+  "SOL_lstm": {
+    "coin": "SOL",
+    "model": "lstm",
+    "accuracy": 0.6196,
+    "variance": 0.0088,
+    "trained_at": "2026-04-02T10:18:42.658456+00:00"
+  },
+  "XRP_lstm": {
+    "coin": "XRP",
+    "model": "lstm",
+    "accuracy": 0.7128,
+    "variance": 0.0057,
+    "trained_at": "2026-04-02T10:19:12.500846+00:00"
+  },
+  "DOGE_lstm": {
+    "coin": "DOGE",
+    "model": "lstm",
+    "accuracy": 0.5658,
+    "variance": 0.0026,
+    "trained_at": "2026-04-02T10:19:39.947984+00:00"
+  }
+}

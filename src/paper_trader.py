@@ -9,6 +9,7 @@ import uuid
 import logging
 import requests
 import datetime
+import pandas as pd
 
 logger = logging.getLogger("PaperTrader")
 
@@ -21,7 +22,7 @@ from config import (
     SLIPPAGE_PCT,
     COMMISSION_PCT,
 )
-from src.database import get_session, PaperTrade, init_db
+from src.database import get_session, PaperTrade, PriceData, SentimentSnapshot, WhaleTransaction, init_db
 
 MIN_NOTIONAL_USD = 10.0
 
@@ -39,6 +40,80 @@ class PaperTrader:
 
     def __init__(self):
         self.enabled = True  # always on — no auth dependency
+
+    # ── XGBoost prediction from live DB features ────────────────
+    def _get_feature_rows(self, coin: str):
+        """
+        Shared helper — fetches latest candles + sentiment + whale data
+        and returns (feature_dataframe, avail_cols) ready for both models.
+        """
+        from src.feature_engineering import (
+            compute_technical_indicators, add_sentiment_features,
+            add_onchain_features, FEATURE_COLS,
+        )
+        session = get_session()
+        prices = (session.query(PriceData)
+                  .filter(PriceData.coin == coin, PriceData.interval == "15m")
+                  .order_by(PriceData.timestamp.desc())
+                  .limit(200).all())
+        if len(prices) < 50:
+            session.close()
+            return None, []
+
+        pdf = pd.DataFrame([{
+            "timestamp": p.timestamp, "open": p.open, "high": p.high,
+            "low": p.low, "close": p.close, "volume": p.volume,
+        } for p in reversed(prices)])
+
+        sents = (session.query(SentimentSnapshot)
+                 .filter(SentimentSnapshot.coin == coin)
+                 .order_by(SentimentSnapshot.timestamp.desc()).limit(50).all())
+        sdf = pd.DataFrame([{"timestamp": s.timestamp, "avg_score": s.avg_score,
+                              "sample_count": s.sample_count} for s in sents]) if sents else None
+
+        whales = (session.query(WhaleTransaction)
+                  .filter(WhaleTransaction.coin == coin)
+                  .order_by(WhaleTransaction.timestamp.desc()).limit(50).all())
+        wdf = pd.DataFrame([{"timestamp": w.timestamp, "value_usd": w.value_usd,
+                              "tx_hash": w.tx_hash, "tx_type": w.tx_type} for w in whales]) if whales else None
+        session.close()
+
+        fdf = compute_technical_indicators(pdf)
+        fdf = add_sentiment_features(fdf, sdf)
+        fdf = add_onchain_features(fdf, wdf)
+        avail = [c for c in FEATURE_COLS if c in fdf.columns]
+        fdf = fdf.dropna(subset=avail)
+        return fdf, avail
+
+    def _get_xgb_prediction(self, coin: str) -> dict:
+        """XGBoost direction prediction using the latest single-row feature vector."""
+        try:
+            from src.model import XGBoostPredictor
+            fdf, avail = self._get_feature_rows(coin)
+            if fdf is None or fdf.empty:
+                return {"direction": "SIDEWAYS", "confidence": 0.5}
+            last_row = fdf.tail(1)
+            features = {c: float(last_row[c].iloc[0]) for c in avail}
+            result = XGBoostPredictor().predict(coin, features)
+            return result if "error" not in result else {"direction": "SIDEWAYS", "confidence": 0.5}
+        except Exception as e:
+            logger.warning(f"[PaperTrader] XGBoost prediction failed: {e}")
+            return {"direction": "SIDEWAYS", "confidence": 0.5}
+
+    def _get_lstm_prediction(self, coin: str) -> dict:
+        """LSTM direction prediction using the last SEQ_LEN rows as a proper sequence."""
+        try:
+            from src.model import LSTMPredictor
+            import numpy as np
+            fdf, avail = self._get_feature_rows(coin)
+            if fdf is None or fdf.empty:
+                return {"direction": "SIDEWAYS", "confidence": 0.5}
+            seq = fdf[avail].values.astype(np.float32)  # (n_rows, n_feat)
+            result = LSTMPredictor().predict_sequence(coin, seq)
+            return result if "error" not in result else {"direction": "SIDEWAYS", "confidence": 0.5}
+        except Exception as e:
+            logger.warning(f"[PaperTrader] LSTM prediction failed: {e}")
+            return {"direction": "SIDEWAYS", "confidence": 0.5}
 
     # ── Live price from Binance public API ──────────────────────
     def get_price(self, symbol: str) -> float:
@@ -78,29 +153,50 @@ class PaperTrader:
             net_notional = notional - commission
 
             order_id = f"SIM-{uuid.uuid4().hex[:10].upper()}"
+
+            # XGBoost prediction (single-row, fast)
+            _xgb = self._get_xgb_prediction(coin)
+            pred_dir  = _xgb.get("direction", "SIDEWAYS")
+            pred_conf = _xgb.get("confidence", 0.5)
+
+            # LSTM prediction (sequence-based, richer context)
+            _lstm = self._get_lstm_prediction(coin)
+            lstm_dir  = _lstm.get("direction", "SIDEWAYS")
+            lstm_conf = _lstm.get("confidence", 0.5)
+
+            agree = "✓" if pred_dir == lstm_dir else "✗"
             logger.info(f"[PaperTrader] SIM {side} {qty:.6f} {symbol} "
-                        f"@ ${fill_price:,.4f} (mkt ${market_price:,.4f}) "
-                        f"notional=${notional:.2f} commission=${commission:.3f}")
+                        f"@ ${fill_price:,.4f} | "
+                        f"XGB={pred_dir}({pred_conf:.0%}) "
+                        f"LSTM={lstm_dir}({lstm_conf:.0%}) agree={agree}")
 
             self._save_trade(coin, symbol, side, qty, fill_price,
-                             net_notional, confidence, order_id)
+                             net_notional, confidence, order_id,
+                             prediction=pred_dir, pred_confidence=pred_conf,
+                             lstm_prediction=lstm_dir, lstm_pred_confidence=lstm_conf)
 
             return {
-                "status":       "FILLED",
-                "side":         side,
-                "symbol":       symbol,
-                "quantity":     qty,
-                "price":        fill_price,
-                "market_price": market_price,
-                "notional":     notional,
-                "commission":   commission,
-                "orderId":      order_id,
+                "status":               "FILLED",
+                "side":                 side,
+                "symbol":               symbol,
+                "quantity":             qty,
+                "price":                fill_price,
+                "market_price":         market_price,
+                "notional":             notional,
+                "commission":           commission,
+                "orderId":              order_id,
+                "prediction":           pred_dir,
+                "pred_confidence":      pred_conf,
+                "lstm_prediction":      lstm_dir,
+                "lstm_pred_confidence": lstm_conf,
             }
         except Exception as e:
             logger.error(f"[PaperTrader] {coin} {side} failed: {e}")
             return {"status": "ERROR", "reason": str(e)}
 
-    def _save_trade(self, coin, symbol, side, qty, price, notional, confidence, order_id):
+    def _save_trade(self, coin, symbol, side, qty, price, notional, confidence, order_id,
+                    prediction=None, pred_confidence=None,
+                    lstm_prediction=None, lstm_pred_confidence=None):
         try:
             init_db()
             session = get_session()
@@ -109,6 +205,8 @@ class PaperTrader:
                 entry_price=price, notional_usd=notional,
                 confidence=confidence, order_id=order_id,
                 signal_source="MANUAL", status="OPEN",
+                prediction=prediction, pred_confidence=pred_confidence,
+                lstm_prediction=lstm_prediction, lstm_pred_confidence=lstm_pred_confidence,
             ))
             session.commit()
             session.close()
@@ -176,18 +274,22 @@ class PaperTrader:
             ).limit(limit).all()
             session.close()
             return [{
-                "time":       t.timestamp.strftime("%m/%d %H:%M"),
-                "coin":       t.coin,
-                "side":       t.side,
-                "qty":        t.quantity,
-                "entry":      t.entry_price,
-                "exit":       t.exit_price,
-                "notional":   t.notional_usd,
-                "pnl_usd":    t.pnl_usd,
-                "pnl_pct":    t.pnl_pct,
-                "confidence": t.confidence,
-                "source":     t.signal_source,
-                "status":     t.status,
+                "time":            t.timestamp.strftime("%m/%d %H:%M"),
+                "coin":            t.coin,
+                "side":            t.side,
+                "qty":             t.quantity,
+                "entry":           t.entry_price,
+                "exit":            t.exit_price,
+                "notional":        t.notional_usd,
+                "pnl_usd":         t.pnl_usd,
+                "pnl_pct":         t.pnl_pct,
+                "confidence":      t.confidence,
+                "source":          t.signal_source,
+                "status":          t.status,
+                "prediction":           t.prediction,
+                "pred_confidence":      t.pred_confidence,
+                "lstm_prediction":      t.lstm_prediction,
+                "lstm_pred_confidence": t.lstm_pred_confidence,
             } for t in trades]
         except Exception as e:
             logger.error(f"[PaperTrader] history fetch failed: {e}")
