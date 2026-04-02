@@ -23,6 +23,7 @@ from src.data_loader import CryptoPanicCollector, FearGreedCollector, NewsCollec
 from src.sentiment_engine import SentimentEngine
 from src.model import PredictionEngine
 from src.signal_engine import SignalGenerator
+from src.paper_trader import PaperTrader
 
 
 class CryptoTerminal:
@@ -39,6 +40,7 @@ class CryptoTerminal:
         self.sentiment  = SentimentEngine()
         self.prediction = PredictionEngine()
         self.signals    = SignalGenerator(self.prediction, self.sentiment)
+        self.paper      = PaperTrader()
         self._running = False
 
     def load_history(self):
@@ -81,6 +83,7 @@ class CryptoTerminal:
             (lambda: self.whale.collect(),       ONCHAIN_FETCH_INTERVAL,  "OnChain"),
             (lambda: self.sentiment.run_full_cycle(), SENTIMENT_RUN_INTERVAL, "Sentiment"),
             (lambda: self.signals.generate_all_signals(), SIGNAL_RUN_INTERVAL, "Signals"),
+            (lambda: self.paper.auto_close_open_trades(hold_hours=4), 3600, "PaperClose"),
         ]
         for fn, interval, name in tasks:
             t = threading.Thread(target=self._loop, args=(fn, interval, name), daemon=True, name=name)

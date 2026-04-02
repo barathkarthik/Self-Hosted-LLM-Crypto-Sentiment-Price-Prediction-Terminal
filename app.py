@@ -517,7 +517,7 @@ st.markdown(f"""
       <span class="status-pill pill-live">● LIVE</span>
       <span class="status-pill pill-ai">AI-POWERED</span>
       <span class="status-pill pill-local">LOCAL LLM</span>
-      <span class="status-pill pill-srl">30 FEATURES</span>
+      <span class="status-pill pill-srl">27 FEATURES</span>
     </div>
   </div>
   <div class="terminal-time">{now_str}</div>
@@ -827,7 +827,7 @@ with tab1:
                   </div>
                   <div style="flex:1;background:#0d1117;padding:0.3rem 0.5rem;text-align:center;">
                     <div style="font-size:0.55rem;color:#484f58;letter-spacing:1px;">FEATURES</div>
-                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:#a78bfa;">30 ACTIVE</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:#a78bfa;">27 ACTIVE</div>
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1130,7 +1130,7 @@ with tab3:
     # ── ML Intelligence Panel ────────────────────────────────────
     st.markdown('<div class="sec-label" style="margin-top:0.75rem;">ML Intelligence</div>', unsafe_allow_html=True)
     st.markdown("""
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+    <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:4px;">
       <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.6rem 0.8rem;">
         <div style="font-size:0.58rem;color:#484f58;letter-spacing:1px;margin-bottom:0.4rem;">FEATURE GROUPS</div>
         <div style="display:flex;flex-direction:column;gap:4px;">
@@ -1146,30 +1146,9 @@ with tab3:
             <span style="font-size:0.65rem;color:#8b949e;">On-Chain / Whale</span>
             <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#e3b341;">2</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:0.65rem;color:#8b949e;">SRL Microstructure</span>
-            <span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#a78bfa;">3</span>
-          </div>
           <div style="border-top:1px solid #161b22;margin-top:2px;padding-top:4px;display:flex;justify-content:space-between;align-items:center;">
             <span style="font-size:0.65rem;color:#c9d1d9;font-weight:600;">Total Features</span>
-            <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#a78bfa;font-weight:700;">30</span>
-          </div>
-        </div>
-      </div>
-      <div style="background:#070b14;border:1px solid #161b22;border-radius:4px;padding:0.6rem 0.8rem;">
-        <div style="font-size:0.58rem;color:#484f58;letter-spacing:1px;margin-bottom:0.4rem;">SRL MICROSTRUCTURE</div>
-        <div style="display:flex;flex-direction:column;gap:5px;">
-          <div>
-            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">VOL_REGIME</div>
-            <div style="font-size:0.62rem;color:#8b949e;">Short/long vol ratio — detects regime shifts</div>
-          </div>
-          <div>
-            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">ENTROPY_50</div>
-            <div style="font-size:0.62rem;color:#8b949e;">Price distribution entropy — market choppiness</div>
-          </div>
-          <div>
-            <div style="font-size:0.58rem;color:#484f58;margin-bottom:1px;">ZSCORE_RET5</div>
-            <div style="font-size:0.62rem;color:#8b949e;">5-bar return z-score — mean reversion signal</div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#a78bfa;font-weight:700;">27</span>
           </div>
         </div>
       </div>
@@ -1465,6 +1444,13 @@ with tab6:
             st.markdown("".join(price_rows), unsafe_allow_html=True)
 
     with c_pt_right:
+        # ── Auto-close trades older than 4h ─────────────────────
+        try:
+            _closed_now = pt.auto_close_open_trades(hold_hours=4)
+            if _closed_now:
+                st.toast(f"{_closed_now} trade(s) auto-closed at current price", icon="✓")
+        except Exception:
+            pass
         # ── P&L Summary from local DB ────────────────────────────
         history = pt.get_trade_history(50)
         closed  = [t for t in history if t["status"] == "CLOSED"]

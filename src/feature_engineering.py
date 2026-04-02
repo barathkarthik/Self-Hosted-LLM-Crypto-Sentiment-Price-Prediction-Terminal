@@ -126,7 +126,7 @@ def add_onchain_features(df: pd.DataFrame, whale_df: pd.DataFrame) -> pd.DataFra
         return df
 
     wdf = whale_df.copy()
-    wdf["hour"] = wdf["timestamp"].dt.floor("H")
+    wdf["hour"] = wdf["timestamp"].dt.floor("h")
     wdf["signed"] = wdf.apply(
         lambda r: r["value_usd"] if r["tx_type"] == "ACCUMULATION"
         else -r["value_usd"] if r["tx_type"] == "DISTRIBUTION" else 0, axis=1)
@@ -134,7 +134,7 @@ def add_onchain_features(df: pd.DataFrame, whale_df: pd.DataFrame) -> pd.DataFra
         whale_net_flow=("signed", "sum"), whale_tx_count=("tx_hash", "count")
     ).reset_index().rename(columns={"hour": "timestamp"})
 
-    df["_hr"] = df["timestamp"].dt.floor("H")
+    df["_hr"] = df["timestamp"].dt.floor("h")
     df = df.merge(hourly, left_on="_hr", right_on="timestamp",
                   how="left", suffixes=("", "_wh"))
     df.drop(columns=["_hr", "timestamp_wh"], errors="ignore", inplace=True)
@@ -162,8 +162,6 @@ FEATURE_COLS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos",
     "sentiment_avg", "sentiment_momentum", "sentiment_volume",
     "whale_net_flow", "whale_tx_count",
-    # SRL microstructure additions
-    "vol_regime", "entropy_50", "zscore_ret5",
 ]
 
 

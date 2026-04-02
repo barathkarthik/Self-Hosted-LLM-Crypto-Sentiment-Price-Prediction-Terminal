@@ -115,6 +115,57 @@ class PaperTrader:
         except Exception as e:
             logger.warning(f"[PaperTrader] DB save failed: {e}")
 
+    def auto_close_open_trades(self, hold_hours: int = 4) -> int:
+        """
+        Close any open trade older than hold_hours at the current live price.
+        Returns number of trades closed.
+        """
+        try:
+            init_db()
+            session = get_session()
+            cutoff = datetime.datetime.now() - datetime.timedelta(hours=hold_hours)
+            open_trades = session.query(PaperTrade).filter(
+                PaperTrade.status == "OPEN",
+                PaperTrade.timestamp <= cutoff,
+            ).all()
+
+            closed = 0
+            for trade in open_trades:
+                try:
+                    symbol = trade.symbol or f"{trade.coin}USDT"
+                    exit_price = self.get_price(symbol)
+
+                    # Apply slippage on exit (adverse direction)
+                    slip = SLIPPAGE_PCT
+                    if trade.side == "BUY":
+                        exit_fill = exit_price * (1 - slip)
+                        pnl_usd = (exit_fill - trade.entry_price) * trade.quantity
+                    else:  # SELL
+                        exit_fill = exit_price * (1 + slip)
+                        pnl_usd = (trade.entry_price - exit_fill) * trade.quantity
+
+                    # Deduct exit commission
+                    pnl_usd -= (trade.notional_usd * COMMISSION_PCT)
+                    pnl_pct = (pnl_usd / trade.notional_usd) * 100 if trade.notional_usd else 0
+
+                    trade.exit_price = round(exit_fill, 6)
+                    trade.pnl_usd    = round(pnl_usd, 4)
+                    trade.pnl_pct    = round(pnl_pct, 4)
+                    trade.status     = "CLOSED"
+                    closed += 1
+                    logger.info(f"[PaperTrader] Auto-closed {trade.side} {trade.coin} "
+                                f"entry={trade.entry_price:.4f} exit={exit_fill:.4f} "
+                                f"pnl=${pnl_usd:.2f} ({pnl_pct:.2f}%)")
+                except Exception as e:
+                    logger.warning(f"[PaperTrader] Failed to close trade {trade.id}: {e}")
+
+            session.commit()
+            session.close()
+            return closed
+        except Exception as e:
+            logger.error(f"[PaperTrader] auto_close failed: {e}")
+            return 0
+
     def get_trade_history(self, limit: int = 50) -> list[dict]:
         """Return local paper trade history from DB."""
         try:

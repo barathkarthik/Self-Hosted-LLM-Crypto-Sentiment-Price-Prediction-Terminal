@@ -90,26 +90,51 @@ class XGBoostPredictor:
             self.available = False
             logger.warning("[XGBoost] not installed — pip install xgboost")
 
+    def _fit_one(self, X_train, y_train, X_val, y_val):
+        m = self.xgb.XGBClassifier(
+            n_estimators=500,
+            max_depth=4,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_weight=5,
+            gamma=0.1,
+            reg_alpha=0.1,
+            reg_lambda=1.5,
+            eval_metric="logloss",
+            early_stopping_rounds=30,
+        )
+        m.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+        return m, float(m.score(X_val, y_val))
+
     def train(self, coin: str, df: pd.DataFrame, feat_cols: list, target: str = "target_4h") -> dict:
         if not self.available:
             return {"error": "xgboost not installed"}
-        clean = df.dropna(subset=feat_cols + [target])
-        if len(clean) < 200:
-            return {"error": f"only {len(clean)} rows"}
-        X, y = clean[feat_cols].values, clean[target].values
-        s = int(len(X) * 0.8)
-        m = self.xgb.XGBClassifier(n_estimators=200, max_depth=6, learning_rate=0.05,
-                                     eval_metric="logloss", use_label_encoder=False)
-        m.fit(X[:s], y[:s], eval_set=[(X[s:], y[s:])], verbose=False)
-        acc = float(m.score(X[s:], y[s:]))
-        self.models[coin] = {"model": m, "features": feat_cols}
+
+        best_m, best_acc, best_target = None, 0.0, target
+        for t in ["target_1h", "target_4h", "target_24h"]:
+            if t not in df.columns:
+                continue
+            clean = df.dropna(subset=feat_cols + [t])
+            if len(clean) < 200:
+                continue
+            X, y = clean[feat_cols].values, clean[t].values
+            s = int(len(X) * 0.8)
+            m, acc = self._fit_one(X[:s], y[:s], X[s:], y[s:])
+            logger.info(f"[XGBoost] {coin} {t}: {acc:.1%}")
+            if acc > best_acc:
+                best_acc, best_m, best_target = acc, m, t
+
+        if best_m is None:
+            return {"error": "training failed for all targets"}
+
+        self.models[coin] = {"model": best_m, "features": feat_cols}
         with open(os.path.join(MODEL_SAVE_PATH, f"xgb_{coin}.pkl"), "wb") as f:
             pickle.dump(self.models[coin], f)
-        # Save feature manifest for alignment at inference time (ported from SRL)
         with open(FEATURE_MANIFEST_PATH, "w") as f:
             json.dump(feat_cols, f, indent=2)
-        logger.info(f"[XGBoost] {coin}: {acc:.1%} accuracy | manifest saved ({len(feat_cols)} cols)")
-        return {"coin": coin, "directional_accuracy": acc, "model": "xgboost"}
+        logger.info(f"[XGBoost] {coin}: best={best_target} {best_acc:.1%} | manifest saved ({len(feat_cols)} cols)")
+        return {"coin": coin, "directional_accuracy": best_acc, "model": "xgboost", "best_target": best_target}
 
     def predict(self, coin: str, features: dict) -> dict:
         data = self.models.get(coin)
